@@ -95,6 +95,11 @@ public class HttpAgentToolClient {
         };
     }
 
+    /** Lets the DAG skip explicitly unavailable nodes before spending a retry. */
+    public boolean isConfigured(AgentToolType type) {
+        AgentRuntimeProperties.Endpoint endpoint = endpoint(type);
+        return endpoint.isEnabled() && !blank(endpoint.getUrl());
+    }
     private String firstText(JsonNode root, String... paths) {
         for (String path : paths) {
             JsonNode node = root;

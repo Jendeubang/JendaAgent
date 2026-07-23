@@ -1,6 +1,7 @@
 package com.jd.genie.controller;
 
 import com.jd.genie.model.agent.AgentRunRequest;
+import com.jd.genie.model.agent.PlanSolveApprovalRequest;
 import com.jd.genie.model.auth.AgentPrincipal;
 import com.jd.genie.service.agent.AgentRequestUserContext;
 import com.jd.genie.service.agent.DynamicPlanSolveAgentRunService;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/** Compatibility API for clients that already use the v2 Plan-Solve URL. */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v2/agent")
@@ -27,5 +29,12 @@ public class DynamicPlanSolveController {
     @PostMapping(value = "/sessions/{sessionId}/runs", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter run(@PathVariable String sessionId, @Valid @RequestBody AgentRunRequest request, @RequestAttribute(AgentAuthenticationFilter.PRINCIPAL_ATTRIBUTE) AgentPrincipal principal) {
         return AgentRequestUserContext.runAs(principal, () -> runService.startRun(sessionId, request));
+    }
+
+    @PostMapping(value = "/sessions/{sessionId}/runs/{runId}/approvals/{approvalId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter resolveApproval(@PathVariable String sessionId, @PathVariable String runId, @PathVariable String approvalId,
+                                      @Valid @RequestBody PlanSolveApprovalRequest request,
+                                      @RequestAttribute(AgentAuthenticationFilter.PRINCIPAL_ATTRIBUTE) AgentPrincipal principal) {
+        return AgentRequestUserContext.runAs(principal, () -> runService.resolveApproval(sessionId, runId, approvalId, request.approved(), request.note()));
     }
 }

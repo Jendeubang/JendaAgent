@@ -12,7 +12,7 @@ import styles from "./page.module.css";
 type Mode = "plan-solve" | "react";
 type PreferredTool = "OCR" | "IMAGE_GENERATE" | "IMAGE_EDIT";
 type ImageProvider = "qwen" | "seedream" | "gemini-nano-banana-2" | "gemini-nano-banana-pro";
-type AgentEvent = { eventId: string; messageType: string; status: string; agent: string; payload: Record<string, unknown> };
+type AgentEvent = { eventId: string; runId: string; messageType: string; status: string; agent: string; payload: Record<string, unknown> };
 type WorkspaceAsset = { assetId: string; title: string; imageUrl: string; source: "reference" | "generated" };
 type WorkspaceSnapshot = { assets: WorkspaceAsset[] };
 
@@ -84,6 +84,7 @@ function eventStage(event: AgentEvent) {
 
 function eventStateClass(event: AgentEvent) {
   if (event.status === "failed") return styles.processFailed;
+  if (event.status === "waiting_confirmation") return styles.processWaiting;
   if (event.status === "running") return styles.processRunning;
   return styles.processComplete;
 }
@@ -171,6 +172,21 @@ export default function JendaAgentPage() {
     }
   };
 
+  const resolveConfirmation = async (event: AgentEvent, approved: boolean) => {
+    const approvalId = typeof event.payload.approvalId === "string" ? event.payload.approvalId : "";
+    if (!approvalId || !event.runId || running) return;
+    setRunning(true); setError("");
+    try {
+      const response = await agentFetch(`${apiBaseUrl}/api/v1/agent/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(event.runId)}/approvals/${encodeURIComponent(approvalId)}`, {
+        method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ approved, note: "" }),
+      });
+      if (!response.ok) throw new Error(`${copy.error}: ${response.status}`);
+      await consumeStream(response); await loadWorkspace();
+    } catch (approvalError) {
+      setError(approvalError instanceof Error ? approvalError.message : copy.error);
+    } finally { setRunning(false); }
+  };
   const run = async () => {
     const task = prompt.trim();
     if (!task || !sessionId || running || uploading) return;
@@ -204,6 +220,10 @@ export default function JendaAgentPage() {
               <div className={styles.processBody}>
                 <div className={styles.processMeta}><div><b>{eventStage(event)}</b><small>{event.agent}</small></div><em>{event.status}</em></div>
                 <p>{getEventContent(event)}</p>
+                {event.messageType === "confirmation_required" && <div className={styles.confirmationActions}>
+                  <Button type="primary" size="small" loading={running} onClick={() => void resolveConfirmation(event, true)}>\u786e\u8ba4\u7ee7\u7eed</Button>
+                  <Button size="small" disabled={running} onClick={() => void resolveConfirmation(event, false)}>\u62d2\u7edd</Button>
+                </div>}
               </div>
             </article>)}
             {running && <article className={`${styles.processItem} ${styles.processPending}`}><div className={styles.processRail}><span>...</span></div><div className={styles.processBody}><div className={styles.processMeta}><div><b>{copy.waiting}</b><small>Jenda Agent</small></div><em>live</em></div></div></article>}

@@ -93,6 +93,16 @@ public class AgentHistoryStore {
         jdbcTemplate.update("UPDATE agent_session SET run_status = ?, updated_at = ? WHERE session_id = ?", status.getValue(), Timestamp.from(now), sessionId);
     }
 
+    public void updateRunStatus(String sessionId, String runId, AgentEventStatus status) {
+        Instant now = Instant.now();
+        jdbcTemplate.update("UPDATE agent_run SET status = ? WHERE run_id = ? AND session_id = ?", status.getValue(), runId, sessionId);
+        jdbcTemplate.update("UPDATE agent_session SET run_status = ?, updated_at = ? WHERE session_id = ?", status.getValue(), Timestamp.from(now), sessionId);
+    }
+
+    public long lastSequence(String runId) {
+        Long value = jdbcTemplate.queryForObject("SELECT COALESCE(MAX(sequence_no), 0) FROM agent_message WHERE run_id = ?", Long.class, runId);
+        return value == null ? 0L : value;
+    }
     public List<AgentEvent> replay(String sessionId) {
         String ownerUserId = AgentRequestUserContext.current().userId();
         if (!canAccess(ownerUserId, sessionId)) throw new AgentSessionAccessDeniedException();
@@ -132,11 +142,11 @@ public class AgentHistoryStore {
 
     private AgentEventType parseType(String value) {
         return switch (value) {
-            case "run_started" -> AgentEventType.RUN_STARTED; case "plan" -> AgentEventType.PLAN; case "prompt_optimization" -> AgentEventType.PROMPT_OPTIMIZATION; case "task" -> AgentEventType.TASK; case "tool_call" -> AgentEventType.TOOL_CALL; case "tool_result" -> AgentEventType.TOOL_RESULT; case "image" -> AgentEventType.IMAGE; case "summary" -> AgentEventType.SUMMARY; case "run_completed" -> AgentEventType.RUN_COMPLETED; case "heartbeat" -> AgentEventType.HEARTBEAT; case "error" -> AgentEventType.ERROR; default -> throw new IllegalArgumentException("Unknown stored agent event type: " + value);
+            case "run_started" -> AgentEventType.RUN_STARTED; case "plan" -> AgentEventType.PLAN; case "prompt_optimization" -> AgentEventType.PROMPT_OPTIMIZATION; case "task" -> AgentEventType.TASK; case "tool_call" -> AgentEventType.TOOL_CALL; case "tool_result" -> AgentEventType.TOOL_RESULT; case "image" -> AgentEventType.IMAGE; case "summary" -> AgentEventType.SUMMARY; case "confirmation_required" -> AgentEventType.CONFIRMATION_REQUIRED; case "run_completed" -> AgentEventType.RUN_COMPLETED; case "heartbeat" -> AgentEventType.HEARTBEAT; case "error" -> AgentEventType.ERROR; default -> throw new IllegalArgumentException("Unknown stored agent event type: " + value);
         };
     }
 
     private AgentEventStatus parseStatus(String value) {
-        return switch (value) { case "queued" -> AgentEventStatus.QUEUED; case "running" -> AgentEventStatus.RUNNING; case "complete" -> AgentEventStatus.COMPLETE; case "failed" -> AgentEventStatus.FAILED; default -> throw new IllegalArgumentException("Unknown stored agent event status: " + value); };
+        return switch (value) { case "queued" -> AgentEventStatus.QUEUED; case "running" -> AgentEventStatus.RUNNING; case "complete" -> AgentEventStatus.COMPLETE; case "failed" -> AgentEventStatus.FAILED; case "skipped" -> AgentEventStatus.SKIPPED; case "waiting_confirmation" -> AgentEventStatus.WAITING_CONFIRMATION; default -> throw new IllegalArgumentException("Unknown stored agent event status: " + value); };
     }
 }

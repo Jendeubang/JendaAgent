@@ -25,3 +25,4 @@
 .providerChoice :global(.ant-radio-wrapper span b), .providerChoice :global(.ant-radio-wrapper span small) { display: block; }
 .providerChoice :global(.ant-radio-wrapper span b) { color: #27364d; font-size: 11px; line-height: 1.35; }
 .providerChoice :global(.ant-radio-wrapper span small) { margin-top: 2px; color: #8b97a8; font-size: 10px; line-height: 1.35; }
+.processWaiting .processRail span{color:#8a5a00;background:#fff8df;border-color:#f5d57b}.processWaiting .processMeta em{color:#8a5a00;background:#fff8df}.processWaiting .processBody{background:#fffdf6;border-color:#f2e0a6}.confirmationActions{display:flex;gap:8px;margin-top:11px}.confirmationActions :global(.ant-btn-primary){background:#3a86ff}

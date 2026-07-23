@@ -2,9 +2,7 @@ package com.jd.genie.model.agent;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 
-/**
- * Stable event names consumed by the agent workspace and persisted by message type.
- */
+/** Stable event names consumed by the agent workspace and persisted by message type. */
 public enum AgentEventType {
     RUN_STARTED("run_started"),
     PLAN("plan"),
@@ -14,18 +12,15 @@ public enum AgentEventType {
     TOOL_RESULT("tool_result"),
     IMAGE("image"),
     SUMMARY("summary"),
+    CONFIRMATION_REQUIRED("confirmation_required"),
     RUN_COMPLETED("run_completed"),
     HEARTBEAT("heartbeat"),
     ERROR("error");
 
     private final String value;
 
-    AgentEventType(String value) {
-        this.value = value;
-    }
+    AgentEventType(String value) { this.value = value; }
 
     @JsonValue
-    public String getValue() {
-        return value;
-    }
+    public String getValue() { return value; }
 }

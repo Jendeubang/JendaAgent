@@ -6,16 +6,14 @@ public enum AgentEventStatus {
     QUEUED("queued"),
     RUNNING("running"),
     COMPLETE("complete"),
-    FAILED("failed");
+    FAILED("failed"),
+    SKIPPED("skipped"),
+    WAITING_CONFIRMATION("waiting_confirmation");
 
     private final String value;
 
-    AgentEventStatus(String value) {
-        this.value = value;
-    }
+    AgentEventStatus(String value) { this.value = value; }
 
     @JsonValue
-    public String getValue() {
-        return value;
-    }
+    public String getValue() { return value; }
 }

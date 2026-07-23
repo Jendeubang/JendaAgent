@@ -1,9 +1,12 @@
 package com.jd.genie.controller;
 
+import com.jd.genie.model.agent.AgentRunMode;
 import com.jd.genie.model.agent.AgentRunRequest;
+import com.jd.genie.model.agent.PlanSolveApprovalRequest;
 import com.jd.genie.model.auth.AgentPrincipal;
 import com.jd.genie.service.agent.AgentRequestUserContext;
 import com.jd.genie.service.agent.AgentRunService;
+import com.jd.genie.service.agent.DynamicPlanSolveAgentRunService;
 import com.jd.genie.service.auth.AgentAuthenticationFilter;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,9 +26,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @CrossOrigin(origins = {"http://localhost:3000", "http://127.0.0.1:3000"})
 public class AgentRunController {
     private final AgentRunService agentRunService;
+    private final DynamicPlanSolveAgentRunService dynamicPlanSolveAgentRunService;
 
     @PostMapping(value = "/sessions/{sessionId}/runs", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter run(@PathVariable String sessionId, @Valid @RequestBody AgentRunRequest request, @RequestAttribute(AgentAuthenticationFilter.PRINCIPAL_ATTRIBUTE) AgentPrincipal principal) {
-        return AgentRequestUserContext.runAs(principal, () -> agentRunService.startRun(sessionId, request));
+        return AgentRequestUserContext.runAs(principal, () -> request.getMode() == AgentRunMode.PLAN_SOLVE
+                ? dynamicPlanSolveAgentRunService.startRun(sessionId, request)
+                : agentRunService.startRun(sessionId, request));
+    }
+
+    @PostMapping(value = "/sessions/{sessionId}/runs/{runId}/approvals/{approvalId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter resolveApproval(@PathVariable String sessionId, @PathVariable String runId, @PathVariable String approvalId,
+                                      @Valid @RequestBody PlanSolveApprovalRequest request,
+                                      @RequestAttribute(AgentAuthenticationFilter.PRINCIPAL_ATTRIBUTE) AgentPrincipal principal) {
+        return AgentRequestUserContext.runAs(principal, () -> dynamicPlanSolveAgentRunService.resolveApproval(sessionId, runId, approvalId, request.approved(), request.note()));
     }
 }
