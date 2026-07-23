@@ -1,0 +1,128 @@
+name: jenda-agent
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-jenda_agent}
+      MYSQL_USER: ${MYSQL_USER:-jenda}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in deploy/.env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in deploy/.env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$$MYSQL_USER -p$$MYSQL_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in deploy/.env}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in deploy/.env}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  backend:
+    build:
+      context: ../genie-backend
+      dockerfile: ../deploy/backend.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env}
+    environment:
+      SERVER_PORT: "8080"
+      AGENT_HISTORY_PERSISTENCE: mysql
+      AGENT_HISTORY_JDBC_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-jenda_agent}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      AGENT_HISTORY_USERNAME: ${MYSQL_USER:-jenda}
+      AGENT_HISTORY_PASSWORD: ${MYSQL_PASSWORD}
+      AGENT_AUTH_ENABLED: "true"
+      AGENT_AUTH_JWT_SECRET: ${AGENT_AUTH_JWT_SECRET:?Set AGENT_AUTH_JWT_SECRET in deploy/.env}
+      AGENT_AUTH_SMS_ENABLED: ${AGENT_AUTH_SMS_ENABLED:-false}
+      AGENT_AUTH_SMS_DEVELOPMENT_MODE: ${AGENT_AUTH_SMS_DEVELOPMENT_MODE:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # The agent calls this same-container gateway; both sides share the internal key from deploy/.env.
+      # Enable the normalized route; the selected provider validates its own configuration.
+      AGENT_RUNTIME_TOOLS_IMAGE_EDIT_URL: http://127.0.0.1:8080/internal/agent-tools/qwen-image-edit
+      AGENT_RUNTIME_TOOLS_IMAGE_EDIT_API_KEY: ${AGENT_GATEWAY_IMAGE_EDIT_INTERNAL_KEY:?Set AGENT_GATEWAY_IMAGE_EDIT_INTERNAL_KEY in deploy/.env}
+      AGENT_RUNTIME_TOOLS_IMAGE_EDIT_TIMEOUT: ${AGENT_RUNTIME_TOOLS_IMAGE_EDIT_TIMEOUT:-600s}
+      AGENT_RUNTIME_TOOLS_IMAGE_GENERATE_ENABLED: ${AGENT_RUNTIME_TOOLS_IMAGE_GENERATE_ENABLED:-true}
+      AGENT_RUNTIME_TOOLS_IMAGE_GENERATE_URL: http://127.0.0.1:8080/internal/agent-tools/qwen-image-generate
+      AGENT_RUNTIME_TOOLS_IMAGE_GENERATE_API_KEY: ${AGENT_GATEWAY_IMAGE_GENERATE_INTERNAL_KEY:?Set AGENT_GATEWAY_IMAGE_GENERATE_INTERNAL_KEY in deploy/.env}
+      AGENT_RUNTIME_TOOLS_IMAGE_GENERATE_TIMEOUT: ${AGENT_RUNTIME_TOOLS_IMAGE_GENERATE_TIMEOUT:-600s}
+      # qwen and SeedDream share the normalized image tool endpoints. Provider selection stays server-side.
+      AGENT_IMAGE_PROVIDER_DEFAULT: ${AGENT_IMAGE_PROVIDER_DEFAULT:-qwen}
+      AGENT_GATEWAY_SEEDDREAM_ENABLED: ${AGENT_GATEWAY_SEEDDREAM_ENABLED:-false}
+      AGENT_GATEWAY_SEEDDREAM_ENDPOINT: ${AGENT_GATEWAY_SEEDDREAM_ENDPOINT:-https://ark.cn-beijing.volces.com/api/v3/images/generations}
+      AGENT_GATEWAY_SEEDDREAM_MODEL: ${AGENT_GATEWAY_SEEDDREAM_MODEL:-}
+      AGENT_GATEWAY_SEEDDREAM_API_KEY: ${AGENT_GATEWAY_SEEDDREAM_API_KEY:-}
+      AGENT_GATEWAY_SEEDDREAM_SIZE: ${AGENT_GATEWAY_SEEDDREAM_SIZE:-2K}
+      AGENT_GATEWAY_SEEDDREAM_WATERMARK: ${AGENT_GATEWAY_SEEDDREAM_WATERMARK:-true}
+      AGENT_GATEWAY_SEEDDREAM_TIMEOUT: ${AGENT_GATEWAY_SEEDDREAM_TIMEOUT:-600s}
+      # Gemini / NanoBanana stays backend-only. Do not expose this API key through Next.js variables.
+      AGENT_GATEWAY_GEMINI_ENABLED: ${AGENT_GATEWAY_GEMINI_ENABLED:-false}
+      AGENT_GATEWAY_GEMINI_ENDPOINT: ${AGENT_GATEWAY_GEMINI_ENDPOINT:-https://generativelanguage.googleapis.com/v1beta/interactions}
+      AGENT_GATEWAY_GEMINI_API_KEY: ${AGENT_GATEWAY_GEMINI_API_KEY:-}
+      AGENT_GATEWAY_GEMINI_NANO_BANANA2_MODEL: ${AGENT_GATEWAY_GEMINI_NANO_BANANA2_MODEL:-gemini-3.1-flash-image}
+      AGENT_GATEWAY_GEMINI_NANO_BANANA_PRO_MODEL: ${AGENT_GATEWAY_GEMINI_NANO_BANANA_PRO_MODEL:-gemini-3-pro-image}
+      AGENT_GATEWAY_GEMINI_PRO_ENABLED: ${AGENT_GATEWAY_GEMINI_PRO_ENABLED:-false}
+      AGENT_GATEWAY_GEMINI_PRO_FALLBACK_TO_NANO_BANANA2: ${AGENT_GATEWAY_GEMINI_PRO_FALLBACK_TO_NANO_BANANA2:-true}
+      AGENT_GATEWAY_GEMINI_IMAGE_SIZE: ${AGENT_GATEWAY_GEMINI_IMAGE_SIZE:-2K}
+      AGENT_GATEWAY_GEMINI_OUTPUT_MIME_TYPE: ${AGENT_GATEWAY_GEMINI_OUTPUT_MIME_TYPE:-image/png}
+      AGENT_GATEWAY_GEMINI_MAX_REFERENCE_IMAGES: ${AGENT_GATEWAY_GEMINI_MAX_REFERENCE_IMAGES:-6}
+      AGENT_GATEWAY_GEMINI_MAX_REFERENCE_IMAGE_BYTES: ${AGENT_GATEWAY_GEMINI_MAX_REFERENCE_IMAGE_BYTES:-8388608}
+      AGENT_GATEWAY_GEMINI_TIMEOUT: ${AGENT_GATEWAY_GEMINI_TIMEOUT:-600s}
+      AGENT_IMAGE_QUOTA_ENABLED: ${AGENT_IMAGE_QUOTA_ENABLED:-true}
+      AGENT_IMAGE_QUOTA_NANO_BANANA2_DAILY_LIMIT: ${AGENT_IMAGE_QUOTA_NANO_BANANA2_DAILY_LIMIT:-20}
+      AGENT_IMAGE_QUOTA_NANO_BANANA_PRO_DAILY_LIMIT: ${AGENT_IMAGE_QUOTA_NANO_BANANA_PRO_DAILY_LIMIT:-3}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  showcase:
+    build:
+      context: ../showcase
+      dockerfile: ../deploy/showcase.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      TZ: Asia/Shanghai
+    networks: [internal]
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - showcase
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "image-composition-v1",
+    "title": "Image composition baseline",
+    "tools": ["image_generate"],
+    "keywords": ["poster", "city", "portrait", "\u6d77\u62a5", "\u57ce\u5e02", "\u4eba\u50cf"],
+    "guidance": "For image generation, state the primary subject, setting, visual hierarchy, camera framing, lighting, color palette, atmosphere, and desired finish. Do not add unrelated subjects."
+  },
+  {
+    "id": "style-control-v1",
+    "title": "Style and palette control",
+    "tools": ["image_generate", "image_edit"],
+    "keywords": ["style", "watercolor", "cyberpunk", "\u98ce\u683c", "\u6c34\u5f69", "\u8d5b\u535a\u670b\u514b"],
+    "guidance": "Describe style through medium, lighting, palette, texture, and composition. Preserve explicit subject details and avoid contradictory style descriptors."
+  },
+  {
+    "id": "background-replacement-v1",
+    "title": "Background replacement safety",
+    "tools": ["image_edit"],
+    "keywords": ["background", "replace", "\u80cc\u666f", "\u66ff\u6362"],
+    "guidance": "For background replacement, explicitly preserve the foreground subject, identity, pose, silhouette, and fine edges. Specify the new scene, matching light direction, contact shadows, perspective, and color temperature."
+  },
+  {
+    "id": "local-mask-edit-v1",
+    "title": "Mask-guided local edit",
+    "tools": ["image_edit"],
+    "keywords": ["mask", "local", "remove", "add", "\u906e\u7f69", "\u5c40\u90e8", "\u79fb\u9664", "\u6dfb\u52a0"],
+    "guidance": "For mask-guided editing, treat the first image as the source and the second image as the edit mask. Modify only white mask regions, preserve black regions, reconstruct boundaries naturally, and keep global composition unchanged."
+  },
+  {
+    "id": "quality-guardrail-v1",
+    "title": "Image quality guardrail",
+    "tools": ["image_generate", "image_edit"],
+    "keywords": ["high quality", "detail", "4k", "8k", "\u9ad8\u6e05", "\u7ec6\u8282"],
+    "guidance": "Use concrete visual quality requirements such as clean edges, coherent anatomy, natural materials, controlled contrast, and readable composition. Avoid unsupported promises or arbitrary technical claims."
+  }
+]

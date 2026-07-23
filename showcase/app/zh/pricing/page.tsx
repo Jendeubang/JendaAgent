@@ -1,0 +1,20 @@
+"use client";
+
+import { useState } from "react";
+import { Button, Segmented } from "antd";
+import { CheckOutlined } from "@ant-design/icons";
+import { CrispixHeader } from "../../../components/CrispixHeader";
+import styles from "./page.module.css";
+
+const text = { basic: "\u57fa\u7840\u7248", pro: "\u4e13\u4e1a\u7248", enterprise: "\u4f01\u4e1a\u7248", pricing: "\u4ef7\u683c\u65b9\u6848", choose: "\u9009\u62e9\u9002\u5408\u60a8\u7684", description: "\u7075\u6d3b\u7684\u5b9a\u4ef7\u65b9\u6848\uff0c\u6ee1\u8db3\u4e0d\u540c\u89c4\u6a21\u7528\u6237\u7684\u9700\u6c42\u3002", month: "\u6309\u6708\u4ed8\u8d39", year: "\u6309\u5e74\u4ed8\u8d39 \u770120%", recommend: "\u63a8\u8350", perMonth: " / \u6bcf\u6708", contact: "\u8054\u7cfb\u9500\u552e", start: "\u5f00\u59cb\u4f7f\u7528", compare: "\u529f\u80fd\u5bf9\u6bd4", feature: "\u529f\u80fd\u7279\u6027", footer: "\u9700\u8981\u66f4\u591a\u5b9a\u5236\u5316\u529f\u80fd\uff1f \u8054\u7cfb\u6211\u4eec\uff0c\u83b7\u53d6\u79c1\u6709\u5316\u90e8\u7f72\u4e0e\u5b9a\u5236\u5f00\u53d1\u65b9\u6848\u3002", yuan: "\u00a5" };
+const plans = [
+  { name: text.basic, desc: "\u9002\u5408\u4e2a\u4eba\u7528\u6237\u548c\u5c0f\u578b\u9879\u76ee", month: 129, year: 99, features: ["\u6bcf\u6708 1,000 \u6b21 API \u8c03\u7528", "\u57fa\u7840\u56fe\u50cf\u8bc6\u522b", "\u6807\u51c6\u54cd\u5e94\u901f\u5ea6", "\u90ae\u4ef6\u652f\u6301", "\u57fa\u7840\u6587\u6863"] },
+  { name: text.pro, desc: "\u9002\u5408\u4e2d\u5c0f\u4f01\u4e1a\u548c\u56e2\u961f\u4f7f\u7528", month: 399, year: 299, hot: true, features: ["\u6bcf\u6708 10,000 \u6b21 API \u8c03\u7528", "\u9ad8\u7ea7\u56fe\u50cf\u8bc6\u522b", "\u4f18\u5148\u54cd\u5e94\u901f\u5ea6", "24/7 \u5728\u7ebf\u652f\u6301", "\u5b8c\u6574\u6587\u6863\u548c SDK", "\u56e2\u961f\u534f\u4f5c\u529f\u80fd"] },
+  { name: text.enterprise, desc: "\u9002\u5408\u5927\u578b\u4f01\u4e1a\u548c\u9ad8\u9891\u4f7f\u7528", month: 1299, year: 999, features: ["\u65e0\u9650 API \u8c03\u7528", "\u4f01\u4e1a\u7ea7\u56fe\u50cf\u8bc6\u522b", "\u6700\u9ad8\u4f18\u5148\u7ea7", "\u4e13\u5c5e\u5ba2\u6237\u7ecf\u7406", "\u79c1\u6709\u5316\u90e8\u7f72", "SLA \u4fdd\u969c"] },
+];
+
+export default function PricingPage() {
+  const [annual, setAnnual] = useState(false);
+  const rows = [["API \u8c03\u7528\u6b21\u6570", "1,000 / \u6708", "10,000 / \u6708", "\u65e0\u9650"], ["\u56fe\u50cf\u8bc6\u522b\u7cbe\u5ea6", "\u6807\u51c6", "\u9ad8\u7ea7", "\u4f01\u4e1a\u7ea7"], ["\u6280\u672f\u652f\u6301", "\u90ae\u4ef6", "24/7 \u5728\u7ebf", "\u4e13\u5c5e\u5ba2\u6237\u7ecf\u7406"], ["\u79c1\u6709\u5316\u90e8\u7f72", "-", "-", "\u652f\u6301"], ["SLA \u4fdd\u969c", "-", "99.9%", "99.99%"]];
+  return <main className={styles.page}><CrispixHeader /><section className={styles.hero}><p>PRICING</p><h1>{text.choose}<br /><em>{text.pricing}</em></h1><span>{text.description}</span><Segmented value={annual ? "year" : "month"} onChange={(value) => setAnnual(value === "year")} options={[{ label: text.month, value: "month" }, { label: text.year, value: "year" }]} /></section><section className={styles.plans}>{plans.map((plan) => <article className={plan.hot ? styles.hot : ""} key={plan.name}>{plan.hot && <b className={styles.recommend}>{text.recommend}</b>}<small>JENDA AGENT</small><h2>{plan.name}</h2><p>{plan.desc}</p><div className={styles.price}><span>{text.yuan}</span>{annual ? plan.year : plan.month}<small>{text.perMonth}</small></div><ul>{plan.features.map((feature) => <li key={feature}><CheckOutlined />{feature}</li>)}</ul><Button type={plan.hot ? "primary" : "default"} block>{plan.name === text.enterprise ? text.contact : text.start}</Button></article>)}</section><section className={styles.compare}><h2>{text.compare}</h2><div className={styles.table}><div>{text.feature}</div><div>{text.basic}</div><div>{text.pro}</div><div>{text.enterprise}</div>{rows.flatMap((row) => row.map((cell, index) => <span className={index === 0 ? styles.label : ""} key={`${row[0]}-${index}`}>{cell}</span>))}</div></section><footer>{text.footer}</footer></main>;
+}

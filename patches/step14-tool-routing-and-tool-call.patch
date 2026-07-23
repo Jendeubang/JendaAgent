@@ -1,0 +1,78 @@
+diff --git a/genie-backend/src/main/java/com/jd/genie/model/agent/AgentEventType.java b/genie-backend/src/main/java/com/jd/genie/model/agent/AgentEventType.java
+--- a/genie-backend/src/main/java/com/jd/genie/model/agent/AgentEventType.java
++++ b/genie-backend/src/main/java/com/jd/genie/model/agent/AgentEventType.java
+@@ -5,6 +5,7 @@ public enum AgentEventType {
+     RUN_STARTED("run_started"),
+     PLAN("plan"),
+     TASK("task"),
++    TOOL_CALL("tool_call"),
+     TOOL_RESULT("tool_result"),
+     IMAGE("image"),
+     SUMMARY("summary"),
+diff --git a/genie-backend/src/main/java/com/jd/genie/service/agent/AgentHistoryStore.java b/genie-backend/src/main/java/com/jd/genie/service/agent/AgentHistoryStore.java
+--- a/genie-backend/src/main/java/com/jd/genie/service/agent/AgentHistoryStore.java
++++ b/genie-backend/src/main/java/com/jd/genie/service/agent/AgentHistoryStore.java
+@@ -30,6 +30,7 @@ public class AgentHistoryStore {
+         execute("CREATE TABLE IF NOT EXISTS agent_message (event_id VARCHAR(64) PRIMARY KEY, session_id VARCHAR(64) NOT NULL, run_id VARCHAR(64) NOT NULL, sequence_no BIGINT NOT NULL, message_type VARCHAR(32) NOT NULL, status VARCHAR(32) NOT NULL, agent_name VARCHAR(64) NOT NULL, occurred_at TIMESTAMP NOT NULL, payload_json TEXT NOT NULL, CONSTRAINT uk_agent_message_sequence UNIQUE (run_id, sequence_no))");
+         execute("CREATE TABLE IF NOT EXISTS agent_plan_message (event_id VARCHAR(64) PRIMARY KEY, title VARCHAR(255), content TEXT, steps_json TEXT)");
+         execute("CREATE TABLE IF NOT EXISTS agent_task_message (event_id VARCHAR(64) PRIMARY KEY, task_id VARCHAR(64), title VARCHAR(255), content TEXT)");
++        execute("CREATE TABLE IF NOT EXISTS agent_tool_call_message (event_id VARCHAR(64) PRIMARY KEY, tool_name VARCHAR(255), title VARCHAR(255), content TEXT, request_json TEXT)");
+         execute("CREATE TABLE IF NOT EXISTS agent_tool_result_message (event_id VARCHAR(64) PRIMARY KEY, tool_name VARCHAR(255), title VARCHAR(255), content TEXT, result_json TEXT)");
+         execute("CREATE TABLE IF NOT EXISTS agent_image_message (event_id VARCHAR(64) PRIMARY KEY, asset_id VARCHAR(64), image_url TEXT, title VARCHAR(255), content TEXT)");
+         execute("CREATE TABLE IF NOT EXISTS agent_summary_message (event_id VARCHAR(64) PRIMARY KEY, title VARCHAR(255), content TEXT)");
+@@ -76,6 +77,8 @@ public class AgentHistoryStore {
+                     event.eventId(), text(payload, "title"), text(payload, "content"), toJson(payload.get("steps")));
+             case TASK -> jdbcTemplate.update("INSERT INTO agent_task_message (event_id, task_id, title, content) VALUES (?, ?, ?, ?)",
+                     event.eventId(), text(payload, "taskId"), text(payload, "title"), text(payload, "content"));
++            case TOOL_CALL -> jdbcTemplate.update("INSERT INTO agent_tool_call_message (event_id, tool_name, title, content, request_json) VALUES (?, ?, ?, ?, ?)",
++                    event.eventId(), text(payload, "tool"), text(payload, "title"), text(payload, "content"), toJson(payload));
+             case TOOL_RESULT -> jdbcTemplate.update("INSERT INTO agent_tool_result_message (event_id, tool_name, title, content, result_json) VALUES (?, ?, ?, ?, ?)",
+                     event.eventId(), text(payload, "tool"), text(payload, "title"), text(payload, "content"), toJson(payload));
+             case IMAGE -> jdbcTemplate.update("INSERT INTO agent_image_message (event_id, asset_id, image_url, title, content) VALUES (?, ?, ?, ?, ?)",
+@@ -111,6 +114,7 @@ public class AgentHistoryStore {
+             case "run_started" -> AgentEventType.RUN_STARTED;
+             case "plan" -> AgentEventType.PLAN;
+             case "task" -> AgentEventType.TASK;
++            case "tool_call" -> AgentEventType.TOOL_CALL;
+             case "tool_result" -> AgentEventType.TOOL_RESULT;
+             case "image" -> AgentEventType.IMAGE;
+             case "summary" -> AgentEventType.SUMMARY;
+diff --git a/genie-backend/src/main/java/com/jd/genie/service/agent/ModelToolAgentRunService.java b/genie-backend/src/main/java/com/jd/genie/service/agent/ModelToolAgentRunService.java
+--- a/genie-backend/src/main/java/com/jd/genie/service/agent/ModelToolAgentRunService.java
++++ b/genie-backend/src/main/java/com/jd/genie/service/agent/ModelToolAgentRunService.java
+@@ -82,6 +82,13 @@ public class ModelToolAgentRunService {
+                         "title", "ExecutorAgent: " + tool.getDisplayName(),
+                         "content", "已提交给 " + tool.getDisplayName() + " 工具适配器执行")));
+             }
++            for (AgentToolType tool : tools) {
++                publish(emitter, event(sessionId, runId, sequence, AgentEventType.TOOL_CALL, AgentEventStatus.RUNNING,
++                        "ToolRouter", Map.of(
++                        "tool", tool.name(),
++                        "title", "ToolRouter: " + tool.getDisplayName() + " 调用中",
++                        "content", "已通过统一工具协议发起 " + tool.getDisplayName() + " 调用。")));
++            }
+ 
+             List<AgentToolResult> toolResults = executeTools(tools, request);
+             if (toolResults.isEmpty()) {
+@@ -145,7 +152,8 @@ public class ModelToolAgentRunService {
+         if (containsAny(prompt, "编辑", "背景", "风格", "清晰", "修复", "替换", "局部", "edit", "background", "style")) {
+             selected.add(AgentToolType.IMAGE_EDIT);
+         } else if (containsAny(prompt, "生成", "绘制", "海报", "图片", "图像", "generate", "create", "image")) {
+-            selected.add(AgentToolType.IMAGE_GENERATE);
++        } else if (containsAny(prompt, "生成一张", "生成图片", "生成图像", "绘制", "画一张", "创建海报", "文生图",
++                "generate an image", "create an image", "draw an image")) {
++            selected.add(AgentToolType.IMAGE_GENERATE);
+         }
+         return selected;
+     }
+diff --git a/showcase/app/live-multimodal/page.tsx b/showcase/app/live-multimodal/page.tsx
+--- a/showcase/app/live-multimodal/page.tsx
++++ b/showcase/app/live-multimodal/page.tsx
+@@ -56,6 +56,7 @@ function eventTitle(event: BackendEvent) {
+       run_started: "多模态上下文已附加",
+       plan: "任务规划",
+       task: "子任务执行",
++      tool_call: "工具调用",
+       tool_result: "工具结果",
+       image: "图像产物",
+       summary: "交付汇总",

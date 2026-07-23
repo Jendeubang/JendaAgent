@@ -1,0 +1,9 @@
+# Development profile for preserving agent sessions across Spring Boot restarts.
+# It intentionally keeps H2 compatibility for the upstream DataAgent demo schema.
+spring:
+  datasource:
+    url: "jdbc:h2:file:./runtime/genie;MODE=MySQL;AUTO_SERVER=TRUE"
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
