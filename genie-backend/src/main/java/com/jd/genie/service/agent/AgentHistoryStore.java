@@ -31,7 +31,7 @@ public class AgentHistoryStore {
         execute("CREATE TABLE IF NOT EXISTS agent_run (run_id VARCHAR(64) PRIMARY KEY, session_id VARCHAR(64) NOT NULL, owner_user_id VARCHAR(64) NOT NULL, mode VARCHAR(32) NOT NULL, prompt TEXT NOT NULL, image_urls_json TEXT, status VARCHAR(32) NOT NULL, created_at TIMESTAMP NOT NULL, completed_at TIMESTAMP)");
         execute("CREATE TABLE IF NOT EXISTS agent_message (event_id VARCHAR(64) PRIMARY KEY, session_id VARCHAR(64) NOT NULL, run_id VARCHAR(64) NOT NULL, sequence_no BIGINT NOT NULL, message_type VARCHAR(32) NOT NULL, status VARCHAR(32) NOT NULL, agent_name VARCHAR(64) NOT NULL, occurred_at TIMESTAMP NOT NULL, payload_json TEXT NOT NULL, CONSTRAINT uk_agent_message_sequence UNIQUE (run_id, sequence_no))");
         execute("CREATE TABLE IF NOT EXISTS agent_plan_message (event_id VARCHAR(64) PRIMARY KEY, title VARCHAR(255), content TEXT, steps_json TEXT)");
-        execute("CREATE TABLE IF NOT EXISTS agent_prompt_optimization_message (event_id VARCHAR(64) PRIMARY KEY, original_prompt TEXT, optimized_prompt TEXT, retrieved_rules_json TEXT, provider VARCHAR(64), content TEXT)");
+        execute("CREATE TABLE IF NOT EXISTS agent_prompt_optimization_message (event_id VARCHAR(64) PRIMARY KEY, original_prompt TEXT, optimized_prompt TEXT, retrieved_rules_json TEXT, knowledge_hits_json TEXT, knowledge_version VARCHAR(128), rag_used BOOLEAN, provider VARCHAR(64), content TEXT)");
         execute("CREATE TABLE IF NOT EXISTS agent_task_message (event_id VARCHAR(64) PRIMARY KEY, task_id VARCHAR(64), title VARCHAR(255), content TEXT)");
         execute("CREATE TABLE IF NOT EXISTS agent_tool_call_message (event_id VARCHAR(64) PRIMARY KEY, tool_name VARCHAR(255), title VARCHAR(255), content TEXT, request_json TEXT)");
         execute("CREATE TABLE IF NOT EXISTS agent_tool_result_message (event_id VARCHAR(64) PRIMARY KEY, tool_name VARCHAR(255), title VARCHAR(255), content TEXT, result_json TEXT)");
@@ -40,6 +40,9 @@ public class AgentHistoryStore {
         execute("CREATE TABLE IF NOT EXISTS agent_react_message (event_id VARCHAR(64) PRIMARY KEY, round_no INT, phase VARCHAR(32), title VARCHAR(255), reasoning_summary TEXT, tool_name VARCHAR(64), tool_input_json TEXT, tool_result_json TEXT, next_decision TEXT, content TEXT)");
         tryExecute("ALTER TABLE agent_session ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(64)");
         tryExecute("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(64)");
+        tryExecute("ALTER TABLE agent_prompt_optimization_message ADD COLUMN IF NOT EXISTS knowledge_hits_json TEXT");
+        tryExecute("ALTER TABLE agent_prompt_optimization_message ADD COLUMN IF NOT EXISTS knowledge_version VARCHAR(128)");
+        tryExecute("ALTER TABLE agent_prompt_optimization_message ADD COLUMN IF NOT EXISTS rag_used BOOLEAN");
         tryExecute("UPDATE agent_session SET owner_user_id = 'legacy-import' WHERE owner_user_id IS NULL");
         tryExecute("UPDATE agent_run SET owner_user_id = 'legacy-import' WHERE owner_user_id IS NULL");
     }
@@ -115,7 +118,7 @@ public class AgentHistoryStore {
         Map<String, Object> payload = event.payload();
         switch (event.messageType()) {
             case PLAN -> jdbcTemplate.update("INSERT INTO agent_plan_message (event_id, title, content, steps_json) VALUES (?, ?, ?, ?)", event.eventId(), text(payload, "title"), text(payload, "content"), toJson(payload.get("steps")));
-            case PROMPT_OPTIMIZATION -> jdbcTemplate.update("INSERT INTO agent_prompt_optimization_message (event_id, original_prompt, optimized_prompt, retrieved_rules_json, provider, content) VALUES (?, ?, ?, ?, ?, ?)", event.eventId(), text(payload, "originalPrompt"), text(payload, "optimizedPrompt"), toJson(payload.get("retrievedRules")), text(payload, "provider"), text(payload, "content"));
+            case PROMPT_OPTIMIZATION -> jdbcTemplate.update("INSERT INTO agent_prompt_optimization_message (event_id, original_prompt, optimized_prompt, retrieved_rules_json, knowledge_hits_json, knowledge_version, rag_used, provider, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", event.eventId(), text(payload, "originalPrompt"), text(payload, "optimizedPrompt"), toJson(payload.get("retrievedRules")), toJson(payload.get("knowledgeHits")), text(payload, "knowledgeVersion"), Boolean.TRUE.equals(payload.get("ragUsed")), text(payload, "provider"), text(payload, "content"));
             case TASK -> jdbcTemplate.update("INSERT INTO agent_task_message (event_id, task_id, title, content) VALUES (?, ?, ?, ?)", event.eventId(), text(payload, "taskId"), text(payload, "title"), text(payload, "content"));
             case TOOL_CALL -> jdbcTemplate.update("INSERT INTO agent_tool_call_message (event_id, tool_name, title, content, request_json) VALUES (?, ?, ?, ?, ?)", event.eventId(), text(payload, "tool"), text(payload, "title"), text(payload, "content"), toJson(payload));
             case TOOL_RESULT -> jdbcTemplate.update("INSERT INTO agent_tool_result_message (event_id, tool_name, title, content, result_json) VALUES (?, ?, ?, ?, ?)", event.eventId(), text(payload, "tool"), text(payload, "title"), text(payload, "content"), toJson(payload));

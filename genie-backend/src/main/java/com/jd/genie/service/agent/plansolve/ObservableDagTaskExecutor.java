@@ -6,6 +6,9 @@ import com.jd.genie.service.agent.AgentAssetMetadataStore;
 import com.jd.genie.service.agent.AgentToolResult;
 import com.jd.genie.service.agent.AgentToolType;
 import com.jd.genie.service.agent.HttpAgentToolClient;
+import com.jd.genie.service.agent.PromptOpAgent;
+import com.jd.genie.service.agent.PromptOptimization;
+import com.jd.genie.service.agent.PromptOptimizationEventPayload;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -31,6 +34,7 @@ public class ObservableDagTaskExecutor {
     private final PlanSolveExecutionStore store;
     private final HttpAgentToolClient toolClient;
     private final AgentAssetMetadataStore assetStore;
+    private final PromptOpAgent promptOpAgent;
     private final ExecutorService workers = Executors.newFixedThreadPool(MAX_CONCURRENCY, runnable -> {
         Thread thread = new Thread(runnable, "plan-solve-dag-worker");
         thread.setDaemon(true);
@@ -92,8 +96,16 @@ public class ObservableDagTaskExecutor {
             int attempt = snapshot.attempts() + 1;
             transition(context, states, task, PlanTaskState.RUNNING, attempt, Map.of());
             events.publish(AgentEventType.TASK, AgentEventStatus.RUNNING, "DagTaskExecutor", taskPayload(task, "running", "submitted to observable executor", attempt));
-            events.publish(AgentEventType.TOOL_CALL, AgentEventStatus.RUNNING, "ToolRouter", Map.of("taskId", task.id(), "tool", task.kind().name(), "title", task.title(), "content", "tool call started", "attempt", attempt, "parallelGroup", task.parallelGroup()));
-            completion.submit(callable(context, task, attempt));
+            AgentToolType type = AgentToolType.valueOf(task.kind().name());
+            String toolPrompt = task.prompt().isBlank() ? context.request().getPrompt() : task.prompt();
+            if (type == AgentToolType.IMAGE_GENERATE || type == AgentToolType.IMAGE_EDIT) {
+                PromptOptimization optimization = promptOpAgent.optimize(toolPrompt, List.of(type), context.request().getImageUrls(), context.request().isPromptOptimizationEnabled());
+                events.publish(AgentEventType.PROMPT_OPTIMIZATION, optimization.applied() ? AgentEventStatus.COMPLETE : AgentEventStatus.SKIPPED,
+                        "PromptOpAgent", PromptOptimizationEventPayload.from(optimization, List.of(type)));
+                toolPrompt = optimization.optimizedPrompt();
+            }
+            events.publish(AgentEventType.TOOL_CALL, AgentEventStatus.RUNNING, "ToolRouter", Map.of("taskId", task.id(), "tool", task.kind().name(), "title", task.title(), "content", "tool call started", "attempt", attempt, "parallelGroup", task.parallelGroup(), "toolInput", toolPrompt));
+            completion.submit(callable(context, task, attempt, toolPrompt));
             submitted++;
         }
         for (int index = 0; index < submitted; index++) {
@@ -115,10 +127,9 @@ public class ObservableDagTaskExecutor {
         }
     }
 
-    private Callable<TaskExecution> callable(ExecutionContext context, PlanTaskSpec task, int attempt) {
+    private Callable<TaskExecution> callable(ExecutionContext context, PlanTaskSpec task, int attempt, String prompt) {
         return () -> {
             AgentToolType type = AgentToolType.valueOf(task.kind().name());
-            String prompt = task.prompt().isBlank() ? context.request().getPrompt() : task.prompt();
             return new TaskExecution(task, attempt, toolClient.execute(type, prompt, context.request().getImageUrls(), context.request().getImageProvider(), context.ownerUserId()));
         };
     }

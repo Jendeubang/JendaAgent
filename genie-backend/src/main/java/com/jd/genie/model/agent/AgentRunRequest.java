@@ -21,6 +21,8 @@ public class AgentRunRequest {
     private List<String> imageUrls = new ArrayList<>();
     @Size(max = 3, message = "at most 3 preferred tools are supported")
     private List<String> preferredTools = new ArrayList<>();
+    /** Per-request control. Disabling this preserves the original prompt for all image tools. */
+    private boolean promptOptimizationEnabled = true;
 
     /** Optional image provider override. Omit it to use agent.image-provider.default-provider. */
     @Size(max = 32, message = "image provider must not exceed 32 characters")

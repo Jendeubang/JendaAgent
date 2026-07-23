@@ -20,6 +20,7 @@ const apiBaseUrl = process.env.NEXT_PUBLIC_AGENT_API_BASE_URL ?? "http://127.0.0
 const sessionStorageKey = "jenda-agent-crispix-session";
 const toolPreferenceStorageKey = "jenda-agent-tool-preferences";
 const imageProviderStorageKey = "jenda-agent-image-provider";
+const promptOptimizationStorageKey = "jenda-agent-prompt-optimization";
 const imageProviderOptions: Array<{ value: ImageProvider; label: string; description: string }> = [
   { value: "qwen", label: "Qwen Image", description: "\u5f53\u524d\u5df2\u63a5\u5165\u7684\u901a\u4e49\u56fe\u50cf\u751f\u6210\u4e0e\u7f16\u8f91" },
   { value: "seedream", label: "SeedDream 4.5", description: "\u586b\u5165\u706b\u5c71\u65b9\u821f\u51ed\u8bc1\u540e\u53ef\u7acb\u5373\u542f\u7528" },
@@ -54,6 +55,8 @@ const copy = {
   preferenceAria: "\u914d\u7f6e\u6a21\u578b\u5de5\u5177\u504f\u597d",
   providerLabel: "\u56fe\u50cf\u6a21\u578b",
   providerAuto: "\u8ddf\u968f\u670d\u52a1\u7aef\u9ed8\u8ba4",
+  promptOptimizationLabel: "\u63d0\u793a\u8bcd RAG \u4f18\u5316",
+  promptOptimizationHint: "\u8c03\u7528\u77e5\u8bc6\u5e93\u540e\u4f18\u5316\u56fe\u50cf\u751f\u6210\u4e0e\u7f16\u8f91\u63d0\u793a\u8bcd",
 };
 
 const suggestions = [
@@ -82,6 +85,7 @@ const eventStageLabels: Record<string, string> = {
   react_observation: "ReAct \u89c2\u5bdf",
   react_decision: "ReAct \u4e0b\u4e00\u6b65\u51b3\u7b56",
   react_terminated: "ReAct \u5df2\u7ec8\u6b62",
+  prompt_optimization: "\u63d0\u793a\u8bcd\u4f18\u5316",
 };
 
 function eventStage(event: AgentEvent) {
@@ -105,6 +109,20 @@ function reactEventContent(event: AgentEvent) {
   return fields.length ? fields.join("\n") : getEventContent(event);
 }
 
+function promptText(payload: Record<string, unknown>, field: string) { return typeof payload[field] === "string" ? payload[field] : ""; }
+function PromptOptimizationView({ event }: { event: AgentEvent }) {
+  const original = promptText(event.payload, "originalPrompt");
+  const optimized = promptText(event.payload, "optimizedPrompt");
+  const applied = event.payload.applied === true;
+  const ragUsed = event.payload.ragUsed === true;
+  const version = promptText(event.payload, "knowledgeVersion");
+  const hits = Array.isArray(event.payload.knowledgeHits) ? event.payload.knowledgeHits.filter((hit): hit is Record<string, unknown> => typeof hit === "object" && hit !== null) : [];
+  return <div className={styles.promptOptimization}>
+    <div className={styles.promptOptimizationHead}><span className={applied ? styles.promptApplied : styles.promptSkipped}>{applied ? "已应用" : "未改写"}</span><span>{ragUsed ? "Qdrant RAG" : "规则回退"}{version ? ` · ${version}` : ""}</span></div>
+    <div className={styles.promptComparison}><div><small>原始提示词</small><pre>{original}</pre></div><div><small>优化后提示词</small><pre>{optimized}</pre></div></div>
+    {hits.length > 0 && <div className={styles.knowledgeHits}>{hits.map((hit, index) => <span key={`${String(hit.id ?? "hit")}-${index}`}>{String(hit.title ?? hit.id ?? "知识规则")}<em>{typeof hit.score === "number" ? hit.score.toFixed(2) : ""}</em></span>)}</div>}
+  </div>;
+}
 function eventStateClass(event: AgentEvent) {
   if (event.status === "failed") return styles.processFailed;
   if (event.status === "waiting_confirmation") return styles.processWaiting;
@@ -118,6 +136,7 @@ export default function JendaAgentPage() {
   const [mode, setMode] = useState<Mode>("react");
   const [preferredTools, setPreferredTools] = useState<PreferredTool[]>([]);
   const [imageProvider, setImageProvider] = useState<ImageProvider>();
+  const [promptOptimizationEnabled, setPromptOptimizationEnabled] = useState(true);
   const [prompt, setPrompt] = useState("");
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [assets, setAssets] = useState<WorkspaceAsset[]>([]);
@@ -155,7 +174,13 @@ export default function JendaAgentPage() {
   useEffect(() => {
     if (imageProvider) window.localStorage.setItem(imageProviderStorageKey, imageProvider);
     else window.localStorage.removeItem(imageProviderStorageKey);
-  }, [imageProvider]);
+  }, [imageProvider]);  useEffect(() => {
+    const stored = window.localStorage.getItem(promptOptimizationStorageKey);
+    if (stored === "false") setPromptOptimizationEnabled(false);
+  }, []);
+  useEffect(() => {
+    window.localStorage.setItem(promptOptimizationStorageKey, String(promptOptimizationEnabled));
+  }, [promptOptimizationEnabled]);
 
   const uploadReference = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -218,7 +243,7 @@ export default function JendaAgentPage() {
     try {
       const response = await agentFetch(`${apiBaseUrl}/api/v1/agent/sessions/${encodeURIComponent(sessionId)}/runs`, {
         method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ prompt: task, mode, imageUrls: upload ? [upload.imageUrl] : [], preferredTools, imageProvider }),
+        body: JSON.stringify({ prompt: task, mode, imageUrls: upload ? [upload.imageUrl] : [], preferredTools, imageProvider, promptOptimizationEnabled }),
       });
       if (!response.ok) throw new Error(`${copy.error}: ${response.status}`);
       await consumeStream(response); await loadWorkspace();
@@ -256,7 +281,7 @@ export default function JendaAgentPage() {
               <div className={styles.processRail}><span>{index + 1}</span></div>
               <div className={styles.processBody}>
                 <div className={styles.processMeta}><div><b>{eventStage(event)}</b><small>{event.agent}</small></div><em>{event.status}</em></div>
-                <p>{getEventContent(event)}</p>
+                {event.messageType === "prompt_optimization" ? <PromptOptimizationView event={event} /> : <p>{getEventContent(event)}</p>}
                 {event.messageType === "confirmation_required" && <div className={styles.confirmationActions}>
                   <Button type="primary" size="small" loading={running} onClick={() => void resolveConfirmation(event, true)}>\u786e\u8ba4\u7ee7\u7eed</Button>
                   <Button size="small" disabled={running} onClick={() => void resolveConfirmation(event, false)}>\u62d2\u7edd</Button>
@@ -277,6 +302,7 @@ export default function JendaAgentPage() {
   overlayClassName={styles.preferencePopover}
   content={<div className={styles.preferencePanel}>
     <div className={styles.preferenceHead}><div><b>{copy.preferenceTitle}</b><p>{copy.preferenceHint}</p></div><span>{preferredTools.length || "AUTO"}</span></div>
+    <div className={styles.promptOptimizationToggle}><Checkbox checked={promptOptimizationEnabled} onChange={(event) => setPromptOptimizationEnabled(event.target.checked)}><span><b>{copy.promptOptimizationLabel}</b><small>{copy.promptOptimizationHint}</small></span></Checkbox></div>
     <div className={styles.providerChoice}><b>{copy.providerLabel}</b><Radio.Group value={imageProvider ?? ""} onChange={(event) => setImageProvider(event.target.value || undefined)}>
       <Radio value="">{copy.providerAuto}</Radio>
       {imageProviderOptions.map((provider) => <Radio value={provider.value} key={provider.value}><span><b>{provider.label}</b><small>{provider.description}</small></span></Radio>)}

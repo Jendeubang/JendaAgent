@@ -37,6 +37,7 @@ public class ReActAgentRunService {
     private final AgentAssetMetadataStore assetStore;
     private final OpenAiCompatibleChatClient chatClient;
     private final AgentReActProperties properties;
+    private final PromptOpAgent promptOpAgent;
 
     public SseEmitter startRun(String sessionId, AgentRunRequest request) {
         String runId = UUID.randomUUID().toString();
@@ -76,19 +77,27 @@ public class ReActAgentRunService {
                     finish(emitter, sessionId, runId, sequence, request, observations, false);
                     return;
                 }
-                String fingerprint = fingerprint(decision.action(), decision.toolInput(), request.getImageUrls());
+                AgentToolType tool = AgentToolType.valueOf(decision.action().name());
+                String toolInput = decision.toolInput();
+                if (tool == AgentToolType.IMAGE_GENERATE || tool == AgentToolType.IMAGE_EDIT) {
+                    PromptOptimization optimization = promptOpAgent.optimize(toolInput, List.of(tool), request.getImageUrls(), request.isPromptOptimizationEnabled());
+                    publish(emitter, event(sessionId, runId, sequence, AgentEventType.PROMPT_OPTIMIZATION,
+                            optimization.applied() ? AgentEventStatus.COMPLETE : AgentEventStatus.SKIPPED, "PromptOpAgent",
+                            PromptOptimizationEventPayload.from(optimization, List.of(tool))));
+                    toolInput = optimization.optimizedPrompt();
+                }
+                String fingerprint = fingerprint(decision.action(), toolInput, request.getImageUrls());
                 int count = fingerprintCounts.merge(fingerprint, 1, Integer::sum);
                 if (count > repeatLimit) {
                     terminate(emitter, sessionId, runId, sequence, "repeated tool call protection", round, observations);
                     return;
                 }
-                AgentToolType tool = AgentToolType.valueOf(decision.action().name());
                 publish(emitter, event(sessionId, runId, sequence, AgentEventType.REACT_ACT, AgentEventStatus.RUNNING, "ReActAgent", Map.of(
                         "round", round, "title", "Act", "content", "Executing " + tool.name(), "action", tool.name(), "tool", tool.name(),
-                        "toolInput", decision.toolInput(), "attempt", count)));
-                AgentToolResult result = toolClient.execute(tool, decision.toolInput(), request.getImageUrls(), request.getImageProvider(), owner.userId());
+                        "toolInput", toolInput, "attempt", count)));
+                AgentToolResult result = toolClient.execute(tool, toolInput, request.getImageUrls(), request.getImageProvider(), owner.userId());
                 Map<String, Object> observationPayload = Map.ofEntries(Map.entry("round", round), Map.entry("title", "Observation"), Map.entry("content", result.summary()),
-                        Map.entry("tool", tool.name()), Map.entry("toolInput", decision.toolInput()), Map.entry("toolResult", result.summary()), Map.entry("success", result.success()),
+                        Map.entry("tool", tool.name()), Map.entry("toolInput", toolInput), Map.entry("toolResult", result.summary()), Map.entry("success", result.success()),
                         Map.entry("invoked", result.invoked()), Map.entry("provider", safe(result.provider())), Map.entry("imageUrl", safe(result.imageUrl())), Map.entry("nextDecision", decision.nextDecision()));
                 publish(emitter, event(sessionId, runId, sequence, AgentEventType.REACT_OBSERVATION,
                         result.success() ? AgentEventStatus.COMPLETE : AgentEventStatus.FAILED, "ReActAgent", observationPayload));

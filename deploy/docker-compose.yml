@@ -34,6 +34,15 @@ services:
       retries: 12
     networks: [internal]
 
+
+  qdrant:
+    image: qdrant/qdrant:v1.10.0
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${AGENT_RAG_QDRANT_API_KEY:?Set AGENT_RAG_QDRANT_API_KEY in deploy/.env}
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks: [internal]
   backend:
     build:
       context: ../genie-backend
@@ -51,6 +60,12 @@ services:
       AGENT_AUTH_JWT_SECRET: ${AGENT_AUTH_JWT_SECRET:?Set AGENT_AUTH_JWT_SECRET in deploy/.env}
       AGENT_AUTH_SMS_ENABLED: ${AGENT_AUTH_SMS_ENABLED:-false}
       AGENT_AUTH_SMS_DEVELOPMENT_MODE: ${AGENT_AUTH_SMS_DEVELOPMENT_MODE:-true}
+      AGENT_RAG_ENABLED: ${AGENT_RAG_ENABLED:-true}
+      AGENT_RAG_QDRANT_URL: http://qdrant:6333
+      AGENT_RAG_QDRANT_API_KEY: ${AGENT_RAG_QDRANT_API_KEY:?Set AGENT_RAG_QDRANT_API_KEY in deploy/.env}
+      AGENT_RAG_COLLECTION: ${AGENT_RAG_COLLECTION:-jenda_prompt_knowledge_v1}
+      AGENT_RAG_EMBEDDING_MODEL: ${AGENT_RAG_EMBEDDING_MODEL:-text-embedding-v4}
+      AGENT_RAG_EMBEDDING_DIMENSIONS: ${AGENT_RAG_EMBEDDING_DIMENSIONS:-1024}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -126,3 +141,4 @@ networks:
 volumes:
   mysql-data:
   redis-data:
+  qdrant-data:
