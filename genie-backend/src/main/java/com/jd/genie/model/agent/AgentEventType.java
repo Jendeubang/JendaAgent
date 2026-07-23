@@ -13,14 +13,16 @@ public enum AgentEventType {
     IMAGE("image"),
     SUMMARY("summary"),
     CONFIRMATION_REQUIRED("confirmation_required"),
+    REACT_THINK("react_think"),
+    REACT_ACT("react_act"),
+    REACT_OBSERVATION("react_observation"),
+    REACT_DECISION("react_decision"),
+    REACT_TERMINATED("react_terminated"),
     RUN_COMPLETED("run_completed"),
     HEARTBEAT("heartbeat"),
     ERROR("error");
 
     private final String value;
-
     AgentEventType(String value) { this.value = value; }
-
-    @JsonValue
-    public String getValue() { return value; }
+    @JsonValue public String getValue() { return value; }
 }

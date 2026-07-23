@@ -76,10 +76,33 @@ const eventStageLabels: Record<string, string> = {
   tool_result: "\u5de5\u5177\u7ed3\u679c",
   image: "\u56fe\u50cf\u4ea7\u7269",
   summary: "\u4ea4\u4ed8\u6c47\u603b",
+  confirmation_required: "\u7b49\u5f85\u4eba\u5de5\u786e\u8ba4",
+  react_think: "ReAct \u601d\u8003",
+  react_act: "ReAct \u6267\u884c",
+  react_observation: "ReAct \u89c2\u5bdf",
+  react_decision: "ReAct \u4e0b\u4e00\u6b65\u51b3\u7b56",
+  react_terminated: "ReAct \u5df2\u7ec8\u6b62",
 };
 
 function eventStage(event: AgentEvent) {
   return eventStageLabels[event.messageType] ?? event.messageType;
+}
+const reactEventTypes = new Set(["react_think", "react_act", "react_observation", "react_decision", "react_terminated"]);
+function isReactEvent(event: AgentEvent) { return reactEventTypes.has(event.messageType); }
+function reactRound(event: AgentEvent) { return typeof event.payload.round === "number" ? event.payload.round : 0; }
+function reactEventContent(event: AgentEvent) {
+  const fields: string[] = [];
+  const reasoning = typeof event.payload.reasoningSummary === "string" ? event.payload.reasoningSummary : "";
+  const action = typeof event.payload.action === "string" ? event.payload.action : "";
+  const toolInput = typeof event.payload.toolInput === "string" ? event.payload.toolInput : "";
+  const toolResult = typeof event.payload.toolResult === "string" ? event.payload.toolResult : "";
+  const nextDecision = typeof event.payload.nextDecision === "string" ? event.payload.nextDecision : "";
+  if (reasoning) fields.push(`Reasoning: ${reasoning}`);
+  if (action) fields.push(`Action: ${action}`);
+  if (toolInput) fields.push(`Tool input: ${toolInput}`);
+  if (toolResult) fields.push(`Observation: ${toolResult}`);
+  if (nextDecision) fields.push(`Next: ${nextDecision}`);
+  return fields.length ? fields.join("\n") : getEventContent(event);
 }
 
 function eventStateClass(event: AgentEvent) {
@@ -103,6 +126,7 @@ export default function JendaAgentPage() {
   const [running, setRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [reactTimelineOpen, setReactTimelineOpen] = useState(true);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(sessionStorageKey);
@@ -204,6 +228,8 @@ export default function JendaAgentPage() {
   };
 
 
+  const reactEvents = events.filter(isReactEvent);
+  const standardEvents = events.filter((event) => !isReactEvent(event));
   return <XProvider theme={{ token: { colorPrimary: "#3a86ff", borderRadius: 8 } }}>
     <main className={styles.page}>
       <CrispixHeader />
@@ -214,8 +240,19 @@ export default function JendaAgentPage() {
           <p>{copy.subtitle}</p>
         </div> : <section className={styles.resultPanel}>
           <div className={styles.resultHead}><span className={running ? styles.liveDot : ""} /> <b>{copy.eventTitle}</b><small>{running ? copy.waiting : "SSE complete"}</small></div>
+          {reactEvents.length > 0 && <section className={styles.reactTimeline} aria-live="polite">
+            <button type="button" className={styles.reactTimelineToggle} onClick={() => setReactTimelineOpen((open) => !open)} aria-expanded={reactTimelineOpen}>
+              <span><b>ReAct Timeline</b><small>{reactEvents.length} events / {new Set(reactEvents.map(reactRound).filter(Boolean)).size} rounds</small></span><em>{reactTimelineOpen ? "Hide" : "Show"}</em>
+            </button>
+            {reactTimelineOpen && <div className={styles.reactTimelineBody}>
+              {reactEvents.map((event) => <article key={event.eventId} className={`${styles.reactStep} ${eventStateClass(event)}`}>
+                <div className={styles.reactRound}>R{reactRound(event) || "-"}</div>
+                <div><div className={styles.reactStepHead}><b>{eventStage(event)}</b><em>{event.status}</em></div><pre>{reactEventContent(event)}</pre></div>
+              </article>)}
+            </div>}
+          </section>}
           <div className={styles.processList} aria-live="polite">
-            {events.map((event, index) => <article key={event.eventId} className={`${styles.processItem} ${eventStateClass(event)}`}>
+            {standardEvents.map((event, index) => <article key={event.eventId} className={`${styles.processItem} ${eventStateClass(event)}`}>
               <div className={styles.processRail}><span>{index + 1}</span></div>
               <div className={styles.processBody}>
                 <div className={styles.processMeta}><div><b>{eventStage(event)}</b><small>{event.agent}</small></div><em>{event.status}</em></div>

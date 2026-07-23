@@ -37,6 +37,7 @@ public class AgentHistoryStore {
         execute("CREATE TABLE IF NOT EXISTS agent_tool_result_message (event_id VARCHAR(64) PRIMARY KEY, tool_name VARCHAR(255), title VARCHAR(255), content TEXT, result_json TEXT)");
         execute("CREATE TABLE IF NOT EXISTS agent_image_message (event_id VARCHAR(64) PRIMARY KEY, asset_id VARCHAR(64), image_url TEXT, title VARCHAR(255), content TEXT)");
         execute("CREATE TABLE IF NOT EXISTS agent_summary_message (event_id VARCHAR(64) PRIMARY KEY, title VARCHAR(255), content TEXT)");
+        execute("CREATE TABLE IF NOT EXISTS agent_react_message (event_id VARCHAR(64) PRIMARY KEY, round_no INT, phase VARCHAR(32), title VARCHAR(255), reasoning_summary TEXT, tool_name VARCHAR(64), tool_input_json TEXT, tool_result_json TEXT, next_decision TEXT, content TEXT)");
         tryExecute("ALTER TABLE agent_session ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(64)");
         tryExecute("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS owner_user_id VARCHAR(64)");
         tryExecute("UPDATE agent_session SET owner_user_id = 'legacy-import' WHERE owner_user_id IS NULL");
@@ -120,6 +121,10 @@ public class AgentHistoryStore {
             case TOOL_RESULT -> jdbcTemplate.update("INSERT INTO agent_tool_result_message (event_id, tool_name, title, content, result_json) VALUES (?, ?, ?, ?, ?)", event.eventId(), text(payload, "tool"), text(payload, "title"), text(payload, "content"), toJson(payload));
             case IMAGE -> jdbcTemplate.update("INSERT INTO agent_image_message (event_id, asset_id, image_url, title, content) VALUES (?, ?, ?, ?, ?)", event.eventId(), text(payload, "assetId"), text(payload, "imageUrl"), text(payload, "title"), text(payload, "content"));
             case SUMMARY -> jdbcTemplate.update("INSERT INTO agent_summary_message (event_id, title, content) VALUES (?, ?, ?)", event.eventId(), text(payload, "title"), text(payload, "content"));
+            case REACT_THINK, REACT_ACT, REACT_OBSERVATION, REACT_DECISION, REACT_TERMINATED -> jdbcTemplate.update(
+                    "INSERT INTO agent_react_message (event_id, round_no, phase, title, reasoning_summary, tool_name, tool_input_json, tool_result_json, next_decision, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    event.eventId(), number(payload, "round"), event.messageType().getValue(), text(payload, "title"), text(payload, "reasoningSummary"), text(payload, "tool"),
+                    toJson(payload.get("toolInput")), toJson(payload.get("toolResult")), text(payload, "nextDecision"), text(payload, "content"));
             default -> { }
         }
     }
@@ -137,12 +142,13 @@ public class AgentHistoryStore {
     private void execute(String statement) { jdbcTemplate.execute(statement); }
     private void tryExecute(String statement) { try { execute(statement); } catch (Exception ignored) { } }
     private String text(Map<String, Object> payload, String key) { Object value = payload.get(key); return value == null ? null : value.toString(); }
+    private Integer number(Map<String, Object> payload, String key) { Object value = payload.get(key); return value instanceof Number number ? number.intValue() : null; }
     private String toJson(Object value) { try { return objectMapper.writeValueAsString(value); } catch (JsonProcessingException error) { throw new IllegalStateException("Unable to serialize agent history payload", error); } }
     private Map<String, Object> fromJson(String value) { try { return objectMapper.readValue(value, new TypeReference<>() { }); } catch (JsonProcessingException error) { throw new IllegalStateException("Unable to deserialize agent history payload", error); } }
 
     private AgentEventType parseType(String value) {
         return switch (value) {
-            case "run_started" -> AgentEventType.RUN_STARTED; case "plan" -> AgentEventType.PLAN; case "prompt_optimization" -> AgentEventType.PROMPT_OPTIMIZATION; case "task" -> AgentEventType.TASK; case "tool_call" -> AgentEventType.TOOL_CALL; case "tool_result" -> AgentEventType.TOOL_RESULT; case "image" -> AgentEventType.IMAGE; case "summary" -> AgentEventType.SUMMARY; case "confirmation_required" -> AgentEventType.CONFIRMATION_REQUIRED; case "run_completed" -> AgentEventType.RUN_COMPLETED; case "heartbeat" -> AgentEventType.HEARTBEAT; case "error" -> AgentEventType.ERROR; default -> throw new IllegalArgumentException("Unknown stored agent event type: " + value);
+            case "run_started" -> AgentEventType.RUN_STARTED; case "plan" -> AgentEventType.PLAN; case "prompt_optimization" -> AgentEventType.PROMPT_OPTIMIZATION; case "task" -> AgentEventType.TASK; case "tool_call" -> AgentEventType.TOOL_CALL; case "tool_result" -> AgentEventType.TOOL_RESULT; case "image" -> AgentEventType.IMAGE; case "summary" -> AgentEventType.SUMMARY; case "confirmation_required" -> AgentEventType.CONFIRMATION_REQUIRED; case "react_think" -> AgentEventType.REACT_THINK; case "react_act" -> AgentEventType.REACT_ACT; case "react_observation" -> AgentEventType.REACT_OBSERVATION; case "react_decision" -> AgentEventType.REACT_DECISION; case "react_terminated" -> AgentEventType.REACT_TERMINATED; case "run_completed" -> AgentEventType.RUN_COMPLETED; case "heartbeat" -> AgentEventType.HEARTBEAT; case "error" -> AgentEventType.ERROR; default -> throw new IllegalArgumentException("Unknown stored agent event type: " + value);
         };
     }
 
