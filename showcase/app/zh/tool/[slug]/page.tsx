@@ -5,6 +5,7 @@ import { Button, Input } from "antd";
 import { useParams } from "next/navigation";
 import { ChangeEvent, CSSProperties, useEffect, useState } from "react";
 import { CrispixHeader } from "../../../../components/CrispixHeader";
+import { agentFetch } from "../../../../lib/agentAuth";
 import styles from "./page.module.css";
 
 type Field = { key: string; label: string; help: string; type: "text" | "textarea" | "number" | "select"; defaultValue: string; options?: string[]; required?: boolean };
@@ -90,45 +91,89 @@ export default function ToolWorkbenchPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [assetId, setAssetId] = useState("");
+  const [resultUrl, setResultUrl] = useState("");
   const [processing, setProcessing] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [events, setEvents] = useState<Array<{ messageType?: string; status?: string; agent?: string; payload?: { title?: string; content?: string; imageUrl?: string } }>>([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setValues(Object.fromEntries(config.fields.map((field) => [field.key, field.defaultValue])));
-    setFile(null); setPreviewUrl(""); setProcessing(false); setCompleted(false);
+    setFile(null); setPreviewUrl(""); setAssetId(""); setResultUrl(""); setEvents([]); setError(""); setProcessing(false); setCompleted(false);
   }, [config]);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  const formJson = JSON.stringify({ ...values, fileId: file?.name ?? undefined }, null, 2);
+  const formJson = JSON.stringify({ ...values, fileId: assetId || undefined }, null, 2);
   const pageStyle = { "--tool-accent": config.accent, "--tool-soft": config.soft } as CSSProperties;
   const categoryLabel = config.slug === "character-setting-sheet" ? "\u98ce\u683c\u8f6c\u6362" : config.slug === "emoji-sticker" ? "\u521b\u610f\u751f\u6210" : config.slug.includes("ecommerce") || config.slug === "product-detail-image" ? "\u7535\u5546\u5de5\u5177" : copy.category;
   const uploadLabel = config.slug === "character-setting-sheet" ? "\u4e0a\u4f20\u89d2\u8272\u53c2\u8003\u56fe" : config.slug === "emoji-sticker" ? "\u4e0a\u4f20\u4eba\u7269/\u89d2\u8272\u56fe\u7247" : config.slug.includes("ecommerce") || config.slug === "product-detail-image" ? "\u4e0a\u4f20\u4ea7\u54c1\u56fe" : copy.upload;
 
-  function chooseFile(event: ChangeEvent<HTMLInputElement>) {
+  function getSessionId() {
+    const key = `jenda-agent-tool-session-${config.slug}`;
+    const current = window.localStorage.getItem(key);
+    if (current) return current;
+    const created = `tool-${config.slug}-${crypto.randomUUID()}`;
+    window.localStorage.setItem(key, created);
+    return created;
+  }
+
+  async function chooseFile(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0];
     if (!selected) return;
+    if (selected.size > 10 * 1024 * 1024) { setError("Image must be 10 MB or smaller"); return; }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(selected); setPreviewUrl(URL.createObjectURL(selected)); setCompleted(false);
+    setFile(selected); setPreviewUrl(URL.createObjectURL(selected)); setCompleted(false); setResultUrl(""); setEvents([]); setError("");
+    try {
+      const body = new FormData(); body.append("file", selected);
+      const response = await agentFetch(`${process.env.NEXT_PUBLIC_AGENT_API_BASE_URL ?? "http://127.0.0.1:8080"}/api/v1/agent/media/images?sessionId=${encodeURIComponent(getSessionId())}`, { method: "POST", body });
+      if (!response.ok) throw new Error(`Upload failed: HTTP ${response.status}`);
+      const uploaded = await response.json() as { assetId: string };
+      setAssetId(uploaded.assetId);
+    } catch (uploadError) {
+      setAssetId(""); setError(uploadError instanceof Error ? uploadError.message : "Upload failed");
+    }
   }
 
   function clearFile() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null); setPreviewUrl(""); setCompleted(false);
+    setFile(null); setPreviewUrl(""); setAssetId(""); setCompleted(false); setResultUrl(""); setEvents([]); setError("");
   }
 
-  function processImage() {
-    if (!file) return;
-    setProcessing(true); setCompleted(false);
-    window.setTimeout(() => { setProcessing(false); setCompleted(true); }, 900);
+  async function processImage() {
+    if (!assetId || processing) return;
+    setProcessing(true); setCompleted(false); setResultUrl(""); setEvents([]); setError("");
+    try {
+      const response = await agentFetch(`${process.env.NEXT_PUBLIC_AGENT_API_BASE_URL ?? "http://127.0.0.1:8080"}/api/v1/agent/sessions/${encodeURIComponent(getSessionId())}/tools/${encodeURIComponent(config.slug)}/runs`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputAssetIds: [assetId], prompt: values.description ?? "", parameters: values })
+      });
+      if (!response.ok) throw new Error(`鐎规悶鍎遍崣璺ㄦ嫚闁垮婀村鎯扮簿鐟欙箓鏁嶅▎绫楾P ${response.status}`);
+      if (!response.body) throw new Error("Tool did not return a stream");
+      const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
+      while (true) {
+        const chunk = await reader.read(); if (chunk.done) break; buffer += decoder.decode(chunk.value, { stream: true });
+        const blocks = buffer.split("\n\n"); buffer = blocks.pop() ?? "";
+        for (const block of blocks) {
+          const data = block.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
+          if (!data) continue;
+          try {
+            const next = JSON.parse(data) as { messageType?: string; status?: string; agent?: string; payload?: { title?: string; content?: string; imageUrl?: string } };
+            setEvents((current) => [...current, next]);
+            if (next.messageType === "image" && next.payload?.imageUrl) { setResultUrl(next.payload.imageUrl); setCompleted(true); }
+          } catch { /* Ignore incomplete SSE frames. */ }
+        }
+      }
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : "Tool execution failed");
+    } finally { setProcessing(false); }
   }
 
   function downloadImage() {
-    if (!previewUrl || !file) return;
-    const link = document.createElement("a");
-    link.href = previewUrl; link.download = `jenda-${config.slug}-${file.name}`; link.click();
+    if (!resultUrl) return;
+    const link = document.createElement("a"); link.href = resultUrl; link.download = `jenda-${config.slug}-result`; link.target = "_blank"; link.click();
   }
-
   return <main className={styles.page} style={pageStyle}>
     <CrispixHeader />
     <section className={styles.hero}>
@@ -143,14 +188,14 @@ export default function ToolWorkbenchPage() {
           {file ? <div className={styles.fileRow}><img src={previewUrl} alt={file.name} /><span>{file.name}</span><button type="button" aria-label={copy.delete} onClick={clearFile}><DeleteOutlined /></button></div> : <label className={styles.uploadButton}><InboxOutlined />{uploadLabel}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={chooseFile} /></label>}
           <p className={styles.help}>{copy.uploadHint}</p>
           {config.fields.map((field) => <div className={styles.field} key={field.key}><label className={styles.label}>{field.required === false ? null : <b>*</b>}{field.label}</label>{field.type === "select" ? <select value={values[field.key] ?? ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}>{field.options?.map((option) => <option key={option}>{option}</option>)}</select> : field.type === "textarea" ? <Input.TextArea value={values[field.key] ?? ""} autoSize={{ minRows: 3, maxRows: 5 }} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} /> : <Input type={field.type} value={values[field.key] ?? ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} />}<p className={styles.help}>{field.help}</p></div>)}
-          <Button type="primary" block loading={processing} disabled={!file} onClick={processImage}>{processing ? copy.processing : copy.process}</Button>
+          <Button type="primary" block loading={processing} disabled={!assetId || processing} onClick={processImage}>{processing ? copy.processing : copy.process}</Button>
           <section className={styles.jsonCard}><h3>{copy.preview}</h3><pre>{formJson || "{}"}</pre></section>
         </div>
       </article>
       <article className={styles.card}>
         <h2>{copy.result}</h2>
-        <div className={styles.resultBody}>{completed && previewUrl ? <><img className={styles.resultImage} src={previewUrl} alt={copy.outputReady} /><div className={styles.resultFooter}><span><CheckCircleFilled /> jenda_{config.slug}_result</span><Button type="primary" size="small" icon={<DownloadOutlined />} onClick={downloadImage}>{copy.download}</Button><Button size="small">{copy.imageInfo}</Button></div></> : <div className={styles.empty}><FileImageOutlined /><span>{processing ? copy.processing : copy.noResult}</span></div>}</div>
-      </article>
+        {error && <p className={styles.error}>{error}</p>}<div className={styles.resultBody}>{resultUrl ? <><img className={styles.resultImage} src={resultUrl} alt={copy.outputReady} /><div className={styles.resultFooter}><span><CheckCircleFilled /> jenda_{config.slug}_result</span><Button type="primary" size="small" icon={<DownloadOutlined />} onClick={downloadImage}>{copy.download}</Button><Button size="small" onClick={() => window.open(resultUrl, "_blank")}>{copy.imageInfo}</Button></div></> : <div className={styles.empty}><FileImageOutlined /><span>{processing ? copy.processing : copy.noResult}</span></div>}</div>
+      {events.length > 0 && <div className={styles.eventList}>{events.map((item, index) => <div className={styles.event} key={`${item.messageType}-${index}`}><b>{item.agent ?? item.messageType}</b><span>{item.status}</span><p>{item.payload?.content ?? item.payload?.title ?? item.messageType}</p></div>)}</div>}</article>
     </section>
     <section className={styles.featureCard}><h2>\u529f\u80fd\u8bf4\u660e</h2><ul>{config.features.map((feature) => <li key={feature}>{feature}</li>)}</ul></section>
   </main>;

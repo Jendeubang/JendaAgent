@@ -3,6 +3,7 @@ package com.jd.genie.service.agent;
 import com.jd.genie.model.agent.AgentAssetMetadata;
 import com.jd.genie.model.agent.AgentAssetPage;
 import com.jd.genie.model.agent.AgentImageUploadResponse;
+import com.jd.genie.model.agent.StoredAgentImage;
 import com.jd.genie.model.auth.AgentPrincipal;
 import jakarta.annotation.PostConstruct;
 import org.springframework.core.env.Environment;
@@ -38,6 +39,12 @@ public class AgentAssetMetadataStore {
         upsert(new AgentAssetMetadata(response.assetId(), owner.userId(), sessionId, null, response.fileName(), response.mediaType(), response.size(), objectKey, response.imageUrl(), "upload", Instant.now()));
     }
 
+    public void recordGenerated(com.jd.genie.model.auth.AgentPrincipal owner, String sessionId, String runId,
+                                 StoredAgentImage storedImage, String imageUrl, String source) {
+        upsert(new AgentAssetMetadata(storedImage.assetId(), owner.userId(), sessionId, runId,
+                storedImage.originalFileName(), storedImage.mediaType(), storedImage.size(),
+                storedImage.storedFileName(), imageUrl, source, Instant.now()));
+    }
     public void recordGeneratedForSession(String sessionId, String runId, String assetId, String title, String imageUrl) {
         List<String> owners = jdbcTemplate.query("SELECT owner_user_id FROM agent_session WHERE session_id = ?", (resultSet, rowNum) -> resultSet.getString(1), sessionId);
         if (!owners.isEmpty()) upsert(new AgentAssetMetadata(assetId, owners.get(0), sessionId, runId, title, "image/*", 0L, null, imageUrl, "generated", Instant.now()));
