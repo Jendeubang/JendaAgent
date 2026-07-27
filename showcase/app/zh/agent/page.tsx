@@ -1,6 +1,6 @@
 "use client";
 
-import { AppstoreOutlined, CameraOutlined, CopyOutlined, DownloadOutlined, EditOutlined, ExpandOutlined, FileImageOutlined, LinkOutlined, LoadingOutlined, PictureOutlined, SearchOutlined, SendOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, CameraOutlined, CaretDownOutlined, CopyOutlined, DownloadOutlined, EditOutlined, ExpandOutlined, FileImageOutlined, LinkOutlined, LoadingOutlined, PictureOutlined, SearchOutlined, SendOutlined } from "@ant-design/icons";
 import { Button, Checkbox, Modal, Popover, Radio, message } from "antd";
 import { Sender, XProvider } from "@ant-design/x";
 import { ChangeEvent, useEffect, useState } from "react";
@@ -196,6 +196,12 @@ function DeliveryCard({ asset, onPreview }: { asset: WorkspaceAsset; onPreview: 
     </div>
   </article>;
 }
+function ReferenceCard({ asset, selected, onSelect, onPreview }: { asset: WorkspaceAsset; selected: boolean; onSelect: (checked: boolean) => void; onPreview: (asset: WorkspaceAsset) => void }) {
+  return <article className={`${styles.referenceCard} ${selected ? styles.referenceSelected : ""}`}>
+    <button type="button" className={styles.referenceImageButton} onClick={() => onPreview(asset)} aria-label="\u9884\u89c8\u53c2\u8003\u56fe"><img src={asset.imageUrl} alt={asset.title} referrerPolicy="no-referrer" /></button>
+    <div><Checkbox checked={selected} onChange={(event) => onSelect(event.target.checked)}>\u4f5c\u4e3a\u672c\u6b21\u53c2\u8003\u56fe</Checkbox><small>{asset.title || "\u5df2\u4e0a\u4f20\u56fe\u7247"}</small></div>
+  </article>;
+}
 function newSessionId() { return `session-${crypto.randomUUID()}`; }
 
 export default function JendaAgentPage() {
@@ -214,6 +220,9 @@ export default function JendaAgentPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [reactTimelineOpen, setReactTimelineOpen] = useState(true);
+  const [referenceOpen, setReferenceOpen] = useState(false);
+  const [deliveryOpen, setDeliveryOpen] = useState(true);
+  const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(sessionStorageKey);
@@ -258,6 +267,9 @@ export default function JendaAgentPage() {
     try {
       const asset = await uploadImageDirect(apiBaseUrl, sessionId, file);
       setUpload(asset); setFileName(file.name);
+      setAssets((current) => current.some((item) => item.assetId === asset.assetId) ? current : [{ assetId: asset.assetId, title: file.name, imageUrl: asset.imageUrl, source: "reference" }, ...current]);
+      setSelectedReferenceIds((current) => current.includes(asset.assetId) ? current : [...current, asset.assetId]);
+      setReferenceOpen(true);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : copy.error);
     } finally { setUploading(false); }
@@ -274,6 +286,12 @@ export default function JendaAgentPage() {
       .then(async (response) => { if (response.ok) setAssets((await response.json() as WorkspaceSnapshot).assets); })
       .catch(() => undefined);
   }, [sessionId]);
+
+  useEffect(() => {
+    const referenceIds = new Set(assets.filter((asset) => asset.source === "reference").map((asset) => asset.assetId));
+    setSelectedReferenceIds((current) => current.filter((assetId) => referenceIds.has(assetId)));
+    if (assets.some((asset) => asset.source === "generated")) setDeliveryOpen(true);
+  }, [assets]);
 
   const consumeStream = async (response: Response) => {
     if (!response.body) throw new Error(copy.error);
@@ -314,11 +332,13 @@ export default function JendaAgentPage() {
   const run = async () => {
     const task = prompt.trim();
     if (!task || !sessionId || running || uploading) return;
-    setRunning(true); setError(""); setEvents([]); setAssets([]);
+    const imageUrls = assets.filter((asset) => asset.source === "reference" && selectedReferenceIds.includes(asset.assetId)).map((asset) => asset.imageUrl);
+
+    setRunning(true); setError(""); setEvents([]); setAssets((current) => current.filter((asset) => asset.source === "reference"));
     try {
       const response = await agentFetch(`${apiBaseUrl}/api/v1/agent/sessions/${encodeURIComponent(sessionId)}/runs`, {
         method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ prompt: task, mode, imageUrls: upload ? [upload.imageUrl] : [], preferredTools, imageProvider, promptOptimizationEnabled }),
+        body: JSON.stringify({ prompt: task, mode, imageUrls: [...new Set(imageUrls)], preferredTools, imageProvider, promptOptimizationEnabled }),
       });
       if (!response.ok) throw new Error(`${copy.error}: ${response.status}`);
       await consumeStream(response); await loadWorkspace();
@@ -330,6 +350,8 @@ export default function JendaAgentPage() {
 
   const reactEvents = events.filter(isReactEvent);
   const standardEvents = events.filter((event) => !isReactEvent(event));
+  const referenceAssets = assets.filter((asset) => asset.source === "reference");
+  const generatedAssets = assets.filter((asset) => asset.source === "generated");
   return <XProvider theme={{ token: { colorPrimary: "#3a86ff", borderRadius: 8 } }}>
     <main className={styles.page}>
       <CrispixHeader />
@@ -365,18 +387,25 @@ export default function JendaAgentPage() {
             </article>)}
             {running && <article className={`${styles.processItem} ${styles.processPending}`}><div className={styles.processRail}><span>...</span></div><div className={styles.processBody}><div className={styles.processMeta}><div><b>{copy.waiting}</b><small>Jenda Agent</small></div><em>live</em></div></div></article>}
           </div>
-          {assets.some((asset) => asset.source === "generated") && <section className={styles.deliverySection}>
-            <div className={styles.deliveryHead}><div><span>{"\u4efb\u52a1\u5b8c\u6210"}</span><h2>{"\u4f60\u7684\u56fe\u50cf\u4ea4\u4ed8\u7269"}</h2></div><small>{assets.filter((asset) => asset.source === "generated").length} {"\u5f20\u6210\u54c1"}</small></div>
-            <div className={styles.deliveryGrid}>{assets.filter((asset) => asset.source === "generated").map((asset) => <DeliveryCard key={asset.assetId} asset={asset} onPreview={setPreviewAsset} />)}</div>
+          {referenceAssets.length > 0 && <section className={styles.referenceSection}>
+            <button type="button" className={styles.assetSectionToggle} onClick={() => setReferenceOpen((open) => !open)} aria-expanded={referenceOpen}>
+              <span><em>REFERENCE</em><b>{"\u4e0a\u4f20\u7684\u53c2\u8003\u56fe"}</b><small>{referenceAssets.length} {"\u5f20"} · {selectedReferenceIds.length} {"\u5df2\u9009"}</small></span><CaretDownOutlined className={referenceOpen ? styles.toggleOpen : ""} />
+            </button>
+            {referenceOpen && <div className={styles.referenceGrid}>{referenceAssets.map((asset) => <ReferenceCard key={asset.assetId} asset={asset} selected={selectedReferenceIds.includes(asset.assetId)} onPreview={setPreviewAsset} onSelect={(checked) => setSelectedReferenceIds((current) => checked ? (current.includes(asset.assetId) ? current : [...current, asset.assetId]) : current.filter((assetId) => assetId !== asset.assetId))} />)}</div>}
           </section>}
-          {assets.length > 0 && <div className={styles.assetGrid}>{assets.map((asset) => <button type="button" key={asset.assetId} onClick={() => setPreviewAsset(asset)}><img src={asset.imageUrl} alt={asset.title} referrerPolicy="no-referrer" /><span>{asset.source === "generated" ? "JENDA OUTPUT" : "REFERENCE"}</span></button>)}</div>}
+          {generatedAssets.length > 0 && <section className={styles.deliverySection}>
+            <button type="button" className={styles.assetSectionToggle} onClick={() => setDeliveryOpen((open) => !open)} aria-expanded={deliveryOpen}>
+              <span><em>{"\u4efb\u52a1\u5b8c\u6210"}</em><b>{"\u4f60\u7684\u56fe\u50cf\u4ea4\u4ed8\u7269"}</b><small>{generatedAssets.length} {"\u5f20\u6210\u54c1"}</small></span><CaretDownOutlined className={deliveryOpen ? styles.toggleOpen : ""} />
+            </button>
+            {deliveryOpen && <div className={styles.deliveryGrid}>{generatedAssets.map((asset) => <DeliveryCard key={asset.assetId} asset={asset} onPreview={setPreviewAsset} />)}</div>}
+          </section>}
         </section>}
         {previewAsset && <Modal open footer={null} onCancel={() => setPreviewAsset(undefined)} width={860} centered className={styles.previewModal} title={previewAsset.title || "\u56fe\u50cf\u4ea4\u4ed8\u7269"}>
           <img className={styles.previewImage} src={previewAsset.imageUrl} alt={previewAsset.title} referrerPolicy="no-referrer" />
           <div className={styles.previewActions}><Button icon={<CopyOutlined />} onClick={() => void copyAsset(previewAsset)}>{"\u590d\u5236\u56fe\u7247"}</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => void downloadAsset(previewAsset)}>{"\u4e0b\u8f7d\u56fe\u7247"}</Button></div>
         </Modal>}
         <section className={styles.composerSection}>
-          {upload && <div className={styles.attachment}><FileImageOutlined /><span>{fileName}</span><button type="button" onClick={() => { setUpload(undefined); setFileName(""); }}>x</button></div>}
+          {selectedReferenceIds.length > 0 && <div className={styles.attachment}><FileImageOutlined /><span>{`${selectedReferenceIds.length} \u5f20\u53c2\u8003\u56fe\u5df2\u9009\u4e2d`}</span><button type="button" onClick={() => { setSelectedReferenceIds([]); setUpload(undefined); setFileName(""); }}>x</button></div>}
           <Sender value={prompt} onChange={setPrompt} onSubmit={() => void run()} loading={running} placeholder={copy.placeholder}
             suffix={<Button type="primary" shape="circle" aria-label="send" icon={<SendOutlined />} disabled={!prompt.trim() || uploading} onClick={() => void run()} />}
             footer={<div className={styles.senderFooter}><div><label className={styles.iconButton}><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={uploadReference} disabled={uploading || running} />{uploading ? <LoadingOutlined spin /> : <LinkOutlined />}</label><Popover
