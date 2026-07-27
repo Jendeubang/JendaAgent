@@ -69,7 +69,6 @@ export default function LoginPage() {
   const requiresCode = mode !== "login";
   return <main className={styles.page}><section className={styles.card}>
     <p>JENDA AGENT / ACCOUNT</p><h1>进入你的<br /><em>私人工作区</em></h1>
-    <span>短期 Access Token + HttpOnly Refresh Cookie，退出后立即失效。</span>
     <Tabs activeKey={mode} onChange={(value) => setMode(value as Mode)} items={[{ key: "login", label: "登录" }, { key: "register", label: "短信注册" }, { key: "reset", label: "找回密码" }]} />
     <form onSubmit={(event) => void submit(event)}>
       {mode !== "reset" && <label>账号<Input prefix={<UserOutlined />} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="3-32 位字母、数字、_ 或 -" /></label>}
