@@ -57,7 +57,7 @@ public class QwenOcrGatewayClient {
                 if (!response.isSuccessful()) {
                     throw new IllegalStateException("Qwen OCR HTTP " + response.code() + ": " + concise(responseBody));
                 }
-                String text = responseText(objectMapper.readTree(responseBody));
+                String text = OcrTextNormalizer.normalize(responseText(objectMapper.readTree(responseBody)));
                 return text.isBlank() ? "未识别到文字" : text;
             }
         } catch (IOException error) {
