@@ -41,6 +41,31 @@ server:
 logging:
   level:
     root: INFO
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,loggers
+  health:
+    redis:
+      enabled: true
+  info:
+    env:
+      enabled: true
+info:
+  application:
+    name: Jenda Agent
+    runtime: multi-agent image workflow platform
+agent:
+  alert:
+    enabled: ${AGENT_ALERT_ENABLED:false}
+    webhook-url: ${AGENT_ALERT_WEBHOOK_URL:}
+    timeout: ${AGENT_ALERT_TIMEOUT:2s}
 llm:
   default:
     base_url: '<input llm server here>'

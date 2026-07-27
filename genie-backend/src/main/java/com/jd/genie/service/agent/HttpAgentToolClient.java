@@ -88,8 +88,8 @@ public class HttpAgentToolClient {
     }
 
     private AgentToolResult finish(AgentPrincipal principal, String owner, AgentToolType type, String provider, boolean success, String summary, String imageUrl, String endpoint) {
-        billingService.recordInvocation(new AgentPrincipal(owner, principal.username()), provider == null ? "default" : provider, type.name(), success);
-        auditLogService.record(new AgentPrincipal(owner, principal.username()), "TOOL_CALL", type.name(), null, success ? "SUCCESS" : "FAILED", Map.of("provider", provider == null ? "default" : provider));
+        if (billingService != null) billingService.recordInvocation(new AgentPrincipal(owner, principal.username()), provider == null ? "default" : provider, type.name(), success);
+        if (auditLogService != null) auditLogService.record(new AgentPrincipal(owner, principal.username()), "TOOL_CALL", type.name(), null, success ? "SUCCESS" : "FAILED", Map.of("provider", provider == null ? "default" : provider));
         return new AgentToolResult(type, true, success, summary, imageUrl, endpoint);
     }
 
