@@ -61,7 +61,7 @@ export default function LoginPage() {
       if (!response.ok) throw new Error(payload?.message || `Request failed: ${response.status}`);
       saveAgentAuthSession(payload as AgentAuthSession);
       message.success(mode === "login" ? "登录成功" : mode === "register" ? "注册成功" : "密码已重置");
-      router.replace("/agent-studio");
+      router.replace("/zh/agent");
     } catch (error) { message.error(error instanceof Error ? error.message : "操作失败"); await loadCaptcha(); }
     finally { setLoading(false); }
   };
