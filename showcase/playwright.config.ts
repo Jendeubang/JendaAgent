@@ -11,10 +11,11 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "corepack pnpm dev -- --port 3100",
+    command: "corepack pnpm exec next dev --port 3100",
     url: "http://127.0.0.1:3100/login",
     reuseExistingServer: !process.env.CI,
     timeout: 90_000,
+    env: { ...process.env, NEXT_PUBLIC_AGENT_API_BASE_URL: "http://127.0.0.1:3100" },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
