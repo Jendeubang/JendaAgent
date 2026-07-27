@@ -78,6 +78,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       # The agent calls this same-container gateway; both sides share the internal key from deploy/.env.
       # Enable the normalized route; the selected provider validates its own configuration.
+      AGENT_RUNTIME_TOOLS_IMAGE_EDIT_ENABLED: ${AGENT_RUNTIME_TOOLS_IMAGE_EDIT_ENABLED:-true}
       AGENT_RUNTIME_TOOLS_IMAGE_EDIT_URL: http://127.0.0.1:8080/internal/agent-tools/qwen-image-edit
       AGENT_RUNTIME_TOOLS_IMAGE_EDIT_API_KEY: ${AGENT_GATEWAY_IMAGE_EDIT_INTERNAL_KEY:?Set AGENT_GATEWAY_IMAGE_EDIT_INTERNAL_KEY in deploy/.env}
       AGENT_RUNTIME_TOOLS_IMAGE_EDIT_TIMEOUT: ${AGENT_RUNTIME_TOOLS_IMAGE_EDIT_TIMEOUT:-600s}
