@@ -109,6 +109,49 @@ public class CosAgentImageStorage implements AgentImageStorage {
         deleteObject(resolveManagedObjectKey(imageUrl));
     }
 
+    /** True only for assets stored in this configured COS bucket and prefix. */
+    public boolean managesUrl(String imageUrl) {
+        try {
+            URI imageUri = URI.create(imageUrl);
+            URI storageUri = URI.create(baseUrl);
+            return storageUri.getHost().equalsIgnoreCase(imageUri.getHost())
+                    && resolveManagedObjectKey(imageUrl).startsWith(prefix);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** Reads a managed private COS object for server-side model adapters. */
+    public byte[] readObjectFromUrl(String imageUrl) {
+        if (!managesUrl(imageUrl)) {
+            throw new IllegalArgumentException("COS URL is outside the configured bucket or prefix");
+        }
+        return readObject(resolveManagedObjectKey(imageUrl));
+    }
+
+    public byte[] readObject(String objectKey) {
+        if (objectKey == null || objectKey.isBlank() || !objectKey.startsWith(prefix)) {
+            throw new IllegalArgumentException("Refusing to read an object outside the configured COS prefix");
+        }
+        URI uri = URI.create(baseUrl + "/" + encodeObjectKey(objectKey));
+        String contentType = "application/octet-stream";
+        Request request = new Request.Builder()
+                .url(uri.toString())
+                .header("Host", uri.getHost())
+                .header("Content-Type", contentType)
+                .header("Authorization", authorization("GET", "/" + objectKey, uri.getHost(), contentType))
+                .get()
+                .build();
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IllegalStateException("COS read failed with HTTP " + response.code());
+            }
+            return response.body() == null ? new byte[0] : response.body().bytes();
+        } catch (IOException error) {
+            throw new IllegalStateException("COS read request failed: " + error.getMessage(), error);
+        }
+    }
+
     public String resolveManagedObjectKey(String imageUrl) {
         try {
             URI uri = URI.create(imageUrl);

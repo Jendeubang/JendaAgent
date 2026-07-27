@@ -11,11 +11,13 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +30,7 @@ public class QwenOcrGatewayClient {
     private final AgentRuntimeProperties runtimeProperties;
     private final QwenOcrGatewayProperties properties;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<CosAgentImageStorage> cosStorageProvider;
 
     public String recognize(AgentToolGatewayRequest request) {
         if (!properties.isEnabled()) {
@@ -54,11 +57,8 @@ public class QwenOcrGatewayClient {
                 if (!response.isSuccessful()) {
                     throw new IllegalStateException("Qwen OCR HTTP " + response.code() + ": " + concise(responseBody));
                 }
-                JsonNode content = objectMapper.readTree(responseBody).path("choices").path(0).path("message").path("content");
-                if (content.isMissingNode() || content.asText().isBlank()) {
-                    throw new IllegalStateException("Qwen OCR response is missing choices[0].message.content");
-                }
-                return content.asText();
+                String text = responseText(objectMapper.readTree(responseBody));
+                return text.isBlank() ? "未识别到文字" : text;
             }
         } catch (IOException error) {
             throw new IllegalStateException("Qwen OCR request failed: " + error.getMessage(), error);
@@ -70,10 +70,52 @@ public class QwenOcrGatewayClient {
         content.add(Map.of("type", "text", "text", "Extract all visible text accurately. Return Chinese text and preserve line breaks. User task: " + request.prompt()));
         for (String imageUrl : request.image_urls()) {
             if (!blank(imageUrl)) {
-                content.add(Map.of("type", "image_url", "image_url", Map.of("url", imageUrl)));
+                content.add(Map.of("type", "image_url", "image_url", Map.of("url", modelAccessibleImage(imageUrl))));
             }
         }
         return content;
+    }
+
+    private String responseText(JsonNode response) {
+        JsonNode content = response.path("choices").path(0).path("message").path("content");
+        if (content.isTextual()) {
+            return content.asText();
+        }
+        if (content.isArray()) {
+            StringBuilder result = new StringBuilder();
+            for (JsonNode item : content) {
+                String value = item.path("text").asText(item.asText());
+                if (!value.isBlank()) {
+                    if (!result.isEmpty()) result.append('\n');
+                    result.append(value);
+                }
+            }
+            return result.toString();
+        }
+        return "";
+    }
+
+    private String modelAccessibleImage(String imageUrl) {
+        if (imageUrl.startsWith("data:image/")) {
+            return imageUrl;
+        }
+        CosAgentImageStorage cosStorage = cosStorageProvider.getIfAvailable();
+        if (cosStorage == null || !cosStorage.managesUrl(imageUrl)) {
+            return imageUrl;
+        }
+        byte[] bytes = cosStorage.readObjectFromUrl(imageUrl);
+        if (bytes.length == 0 || bytes.length > 10 * 1024 * 1024) {
+            throw new IllegalStateException("OCR image must be between 1 byte and 10 MB after COS download");
+        }
+        return "data:" + mediaType(imageUrl) + ";base64," + Base64.getEncoder().encodeToString(bytes);
+    }
+
+    private String mediaType(String imageUrl) {
+        String lower = imageUrl.toLowerCase();
+        if (lower.contains(".webp")) return "image/webp";
+        if (lower.contains(".gif")) return "image/gif";
+        if (lower.contains(".jpg") || lower.contains(".jpeg")) return "image/jpeg";
+        return "image/png";
     }
 
     private String chatCompletionsUrl(String baseUrl) {
