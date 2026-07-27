@@ -3,6 +3,7 @@ package com.jd.genie.service.agent;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,5 +25,7 @@ class CosSignedUrlServiceTest {
         assertTrue(url.contains("q-sign-algorithm=sha1"));
         assertTrue(url.contains("q-signature="));
         assertFalse(url.contains("test-secret-key"));
+        assertEquals("agent/2026/07/asset-1.png", service.objectKeyIfOwned(url));
+        assertEquals("https://example.com/image.png", service.createGetUrlIfOwned("https://example.com/image.png"));
     }
 }

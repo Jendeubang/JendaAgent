@@ -59,18 +59,24 @@ public class CosSignedUrlService {
      * Converts only objects owned by this private bucket to a short-lived signed GET URL.
      */
     public String createGetUrlIfOwned(String sourceUrl) {
+        String objectKey = objectKeyIfOwned(sourceUrl);
+        return objectKey == null ? sourceUrl : createGetUrl(objectKey);
+    }
+
+    /** Returns an object key only when the URL belongs to this configured COS bucket. */
+    public String objectKeyIfOwned(String sourceUrl) {
         if (sourceUrl == null || sourceUrl.isBlank()) {
-            return sourceUrl;
+            return null;
         }
         String prefix = baseUrl + "/";
         String unsignedUrl = sourceUrl.substring(0, sourceUrl.indexOf('?') < 0 ? sourceUrl.length() : sourceUrl.indexOf('?'));
         if (!unsignedUrl.startsWith(prefix)) {
-            return sourceUrl;
+            return null;
         }
         String encodedKey = unsignedUrl.substring(prefix.length());
-        String objectKey = URLDecoder.decode(encodedKey, StandardCharsets.UTF_8);
-        return createGetUrl(objectKey);
+        return URLDecoder.decode(encodedKey, StandardCharsets.UTF_8);
     }
+
     private String encodeObjectKey(String objectKey) {
         String[] segments = objectKey.split("/");
         for (int index = 0; index < segments.length; index++) {

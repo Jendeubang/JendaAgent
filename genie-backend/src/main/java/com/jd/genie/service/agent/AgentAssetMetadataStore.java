@@ -7,6 +7,7 @@ import com.jd.genie.model.agent.StoredAgentImage;
 import com.jd.genie.model.auth.AgentPrincipal;
 import com.jd.genie.persistence.agent.service.AgentOperationalPersistenceService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -17,6 +18,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class AgentAssetMetadataStore {
     private final AgentOperationalPersistenceService persistence;
+    private final ObjectProvider<CosSignedUrlService> signedUrlServiceProvider;
 
     public void recordUpload(AgentPrincipal owner, String sessionId, AgentImageUploadResponse response, String objectKey) {
         persistence.upsertAsset(new AgentAssetMetadata(response.assetId(), owner.userId(), sessionId, null,
@@ -32,10 +34,12 @@ public class AgentAssetMetadataStore {
 
     public void recordGeneratedForSession(String sessionId, String runId, String assetId, String title, String imageUrl) {
         String ownerUserId = persistence.ownerOfSession(sessionId);
-        if (ownerUserId != null) {
-            persistence.upsertAsset(new AgentAssetMetadata(assetId, ownerUserId, sessionId, runId, title,
-                    "image/*", 0L, null, imageUrl, "generated", Instant.now()));
-        }
+        if (ownerUserId == null) return;
+        CosSignedUrlService signer = signedUrlServiceProvider.getIfAvailable();
+        String objectKey = signer == null ? null : signer.objectKeyIfOwned(imageUrl);
+        String currentUrl = objectKey == null || signer == null ? imageUrl : signer.createGetUrl(objectKey);
+        persistence.upsertAsset(new AgentAssetMetadata(assetId, ownerUserId, sessionId, runId, title,
+                "image/*", 0L, objectKey, currentUrl, "generated", Instant.now()));
     }
 
     public AgentAssetPage pageOwned(String ownerUserId, String sessionId, int page, int size) {
