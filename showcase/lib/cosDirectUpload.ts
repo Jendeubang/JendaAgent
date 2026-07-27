@@ -44,6 +44,11 @@ async function uploadImageViaServer(apiBaseUrl: string, sessionId: string, file:
 
 /** The authorization header is sent only to the JendaAgent API, never to the COS PUT URL. */
 export async function uploadImageDirect(apiBaseUrl: string, sessionId: string, file: File): Promise<DirectUploadedAsset> {
+  // Use server transport only when explicitly disabled. Normally the browser uploads
+  // through a CORS-approved STS ticket, then falls back to the authenticated backend.
+  if (process.env.NEXT_PUBLIC_AGENT_COS_DIRECT_UPLOAD === "false") {
+    return uploadImageViaServer(apiBaseUrl, sessionId, file);
+  }
   try {
     const ticketResponse = await agentFetch(apiBaseUrl + "/api/v1/agent/media/direct/tickets", {
       method: "POST", headers: { "Content-Type": "application/json" },
