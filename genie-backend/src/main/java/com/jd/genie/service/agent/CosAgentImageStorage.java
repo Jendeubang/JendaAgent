@@ -44,6 +44,8 @@ public class CosAgentImageStorage implements AgentImageStorage {
             .readTimeout(Duration.ofSeconds(60))
             .writeTimeout(Duration.ofSeconds(60))
             .callTimeout(Duration.ofSeconds(90))
+            // COS intermittently closes TLS negotiation when HTTP/2 is attempted from Docker Desktop.
+            .protocols(List.of(Protocol.HTTP_1_1))
             .retryOnConnectionFailure(true)
             .build();
     private final String bucket;
