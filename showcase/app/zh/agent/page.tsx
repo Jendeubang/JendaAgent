@@ -1,7 +1,7 @@
 "use client";
 
-import { AppstoreOutlined, CameraOutlined, EditOutlined, FileImageOutlined, LinkOutlined, LoadingOutlined, PictureOutlined, SearchOutlined, SendOutlined } from "@ant-design/icons";
-import { Button, Checkbox, Popover, Radio } from "antd";
+import { AppstoreOutlined, CameraOutlined, CopyOutlined, DownloadOutlined, EditOutlined, ExpandOutlined, FileImageOutlined, LinkOutlined, LoadingOutlined, PictureOutlined, SearchOutlined, SendOutlined } from "@ant-design/icons";
+import { Button, Checkbox, Modal, Popover, Radio, message } from "antd";
 import { Sender, XProvider } from "@ant-design/x";
 import { ChangeEvent, useEffect, useState } from "react";
 import { agentFetch } from "../../../lib/agentAuth";
@@ -129,6 +129,73 @@ function eventStateClass(event: AgentEvent) {
   if (event.status === "running") return styles.processRunning;
   return styles.processComplete;
 }
+function assetDownloadName(asset: WorkspaceAsset) {
+  const safeTitle = (asset.title || "jenda-output").replace(/[^a-zA-Z0-9._-]+/g, "-");
+  return /\.(png|jpe?g|webp|gif)$/i.test(safeTitle) ? safeTitle : `${safeTitle}.png`;
+}
+
+async function downloadAsset(asset: WorkspaceAsset) {
+  try {
+    const response = await fetch(asset.imageUrl);
+    if (!response.ok) throw new Error(`download failed: ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = assetDownloadName(asset);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+    message.success("\u56fe\u7247\u5df2\u5f00\u59cb\u4e0b\u8f7d");
+  } catch {
+    window.open(asset.imageUrl, "_blank", "noopener,noreferrer");
+    message.info("\u5df2\u6253\u5f00\u56fe\u7247\u94fe\u63a5\uff0c\u8bf7\u5728\u65b0\u7a97\u53e3\u4fdd\u5b58");
+  }
+}
+
+async function copyAsset(asset: WorkspaceAsset) {
+  try {
+    const response = await fetch(asset.imageUrl);
+    if (!response.ok) throw new Error("image unavailable");
+    const blob = await response.blob();
+    if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+      message.success("\u56fe\u7247\u5df2\u590d\u5236\uff0c\u53ef\u76f4\u63a5\u7c98\u8d34");
+      return;
+    }
+    await navigator.clipboard.writeText(asset.imageUrl);
+    message.success("\u56fe\u7247\u94fe\u63a5\u5df2\u590d\u5236");
+  } catch {
+    try {
+      await navigator.clipboard.writeText(asset.imageUrl);
+      message.success("\u56fe\u7247\u94fe\u63a5\u5df2\u590d\u5236");
+    } catch {
+      message.error("\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u4f7f\u7528\u4e0b\u8f7d\u6309\u94ae");
+    }
+  }
+}
+
+function DeliveryCard({ asset, onPreview }: { asset: WorkspaceAsset; onPreview: (asset: WorkspaceAsset) => void }) {
+  const [busy, setBusy] = useState<"copy" | "download">();
+  const copy = async () => { setBusy("copy"); try { await copyAsset(asset); } finally { setBusy(undefined); } };
+  const download = async () => { setBusy("download"); try { await downloadAsset(asset); } finally { setBusy(undefined); } };
+  return <article className={styles.deliveryCard}>
+    <button type="button" className={styles.deliveryImageButton} onClick={() => onPreview(asset)} aria-label="\u9884\u89c8\u751f\u6210\u56fe\u7247">
+      <img src={asset.imageUrl} alt={asset.title} referrerPolicy="no-referrer" />
+      <span><ExpandOutlined /> \u70b9\u51fb\u67e5\u770b\u5927\u56fe</span>
+    </button>
+    <div className={styles.deliveryInfo}>
+      <div><em>JENDA OUTPUT</em><strong>{asset.title || "\u751f\u6210\u7ed3\u679c"}</strong></div>
+      <small>\u5df2\u5f52\u6863\u5230\u60a8\u7684 COS \u8d44\u4ea7\u5e93</small>
+      <div className={styles.deliveryActions}>
+        <Button size="small" icon={<ExpandOutlined />} onClick={() => onPreview(asset)}>\u9884\u89c8</Button>
+        <Button size="small" icon={<CopyOutlined />} loading={busy === "copy"} onClick={() => void copy()}>\u590d\u5236</Button>
+        <Button size="small" type="primary" icon={<DownloadOutlined />} loading={busy === "download"} onClick={() => void download()}>\u4e0b\u8f7d</Button>
+      </div>
+    </div>
+  </article>;
+}
 function newSessionId() { return `session-${crypto.randomUUID()}`; }
 
 export default function JendaAgentPage() {
@@ -140,6 +207,7 @@ export default function JendaAgentPage() {
   const [prompt, setPrompt] = useState("");
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [assets, setAssets] = useState<WorkspaceAsset[]>([]);
+  const [previewAsset, setPreviewAsset] = useState<WorkspaceAsset>();
   const [upload, setUpload] = useState<DirectUploadedAsset>();
   const [fileName, setFileName] = useState("");
   const [running, setRunning] = useState(false);
@@ -290,8 +358,16 @@ export default function JendaAgentPage() {
             </article>)}
             {running && <article className={`${styles.processItem} ${styles.processPending}`}><div className={styles.processRail}><span>...</span></div><div className={styles.processBody}><div className={styles.processMeta}><div><b>{copy.waiting}</b><small>Jenda Agent</small></div><em>live</em></div></div></article>}
           </div>
-          {assets.length > 0 && <div className={styles.assetGrid}>{assets.map((asset) => <a key={asset.assetId} href={asset.imageUrl} target="_blank" rel="noreferrer"><img src={asset.imageUrl} alt={asset.title} /><span>{asset.source === "generated" ? "JENDA OUTPUT" : "REFERENCE"}</span></a>)}</div>}
+          {assets.some((asset) => asset.source === "generated") && <section className={styles.deliverySection}>
+            <div className={styles.deliveryHead}><div><span>\u4efb\u52a1\u5b8c\u6210</span><h2>\u4f60\u7684\u56fe\u50cf\u4ea4\u4ed8\u7269</h2></div><small>{assets.filter((asset) => asset.source === "generated").length} \u5f20\u6210\u54c1</small></div>
+            <div className={styles.deliveryGrid}>{assets.filter((asset) => asset.source === "generated").map((asset) => <DeliveryCard key={asset.assetId} asset={asset} onPreview={setPreviewAsset} />)}</div>
+          </section>}
+          {assets.length > 0 && <div className={styles.assetGrid}>{assets.map((asset) => <button type="button" key={asset.assetId} onClick={() => setPreviewAsset(asset)}><img src={asset.imageUrl} alt={asset.title} referrerPolicy="no-referrer" /><span>{asset.source === "generated" ? "JENDA OUTPUT" : "REFERENCE"}</span></button>)}</div>}
         </section>}
+        {previewAsset && <Modal open footer={null} onCancel={() => setPreviewAsset(undefined)} width={860} centered className={styles.previewModal} title={previewAsset.title || "\u56fe\u50cf\u4ea4\u4ed8\u7269"}>
+          <img className={styles.previewImage} src={previewAsset.imageUrl} alt={previewAsset.title} referrerPolicy="no-referrer" />
+          <div className={styles.previewActions}><Button icon={<CopyOutlined />} onClick={() => void copyAsset(previewAsset)}>\u590d\u5236\u56fe\u7247</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => void downloadAsset(previewAsset)}>\u4e0b\u8f7d\u56fe\u7247</Button></div>
+        </Modal>}
         <section className={styles.composerSection}>
           {upload && <div className={styles.attachment}><FileImageOutlined /><span>{fileName}</span><button type="button" onClick={() => { setUpload(undefined); setFileName(""); }}>x</button></div>}
           <Sender value={prompt} onChange={setPrompt} onSubmit={() => void run()} loading={running} placeholder={copy.placeholder}
