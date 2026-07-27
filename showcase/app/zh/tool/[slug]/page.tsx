@@ -5,7 +5,7 @@ import { Button, Input } from "antd";
 import { useParams } from "next/navigation";
 import { ChangeEvent, CSSProperties, useEffect, useState } from "react";
 import { CrispixHeader } from "../../../../components/CrispixHeader";
-import { agentFetch } from "../../../../lib/agentAuth";
+import { agentFetch, readAgentAuthSession } from "../../../../lib/agentAuth";
 import styles from "./page.module.css";
 
 type Field = { key: string; label: string; help: string; type: "text" | "textarea" | "number" | "select"; defaultValue: string; options?: string[]; required?: boolean };
@@ -111,7 +111,8 @@ export default function ToolWorkbenchPage() {
   const uploadLabel = config.slug === "character-setting-sheet" ? "\u4e0a\u4f20\u89d2\u8272\u53c2\u8003\u56fe" : config.slug === "emoji-sticker" ? "\u4e0a\u4f20\u4eba\u7269/\u89d2\u8272\u56fe\u7247" : config.slug.includes("ecommerce") || config.slug === "product-detail-image" ? "\u4e0a\u4f20\u4ea7\u54c1\u56fe" : copy.upload;
 
   function getSessionId() {
-    const key = `jenda-agent-tool-session-${config.slug}`;
+    const userId = readAgentAuthSession()?.userId ?? "anonymous";
+    const key = `jenda-agent-tool-session-${userId}-${config.slug}`;
     const current = window.localStorage.getItem(key);
     if (current) return current;
     const created = `tool-${config.slug}-${crypto.randomUUID()}`;
@@ -149,7 +150,7 @@ export default function ToolWorkbenchPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ inputAssetIds: [assetId], prompt: values.description ?? "", parameters: values })
       });
-      if (!response.ok) throw new Error(`鐎规悶鍎遍崣璺ㄦ嫚闁垮婀村鎯扮簿鐟欙箓鏁嶅▎绫楾P ${response.status}`);
+      if (!response.ok) throw new Error(`工具服务返回 HTTP ${response.status}`);
       if (!response.body) throw new Error("Tool did not return a stream");
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
       while (true) {
