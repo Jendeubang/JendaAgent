@@ -75,11 +75,13 @@ public class AgentLoginRateLimiter {
         List<GuardState> states = jdbcTemplate.query("SELECT failures, window_started_at, locked_until FROM agent_login_guard WHERE guard_key = ?", (resultSet, rowNum) -> new GuardState(resultSet.getInt("failures"), resultSet.getTimestamp("window_started_at").toInstant(), resultSet.getTimestamp("locked_until") == null ? null : resultSet.getTimestamp("locked_until").toInstant()), key);
         int failures = 1;
         if (!states.isEmpty() && states.get(0).windowStartedAt().plus(properties.getLoginFailureWindow()).isAfter(now)) failures = states.get(0).failures() + 1;
-        Instant lockUntil = failures >= properties.getLoginMaxFailures() ? now.plus(properties.getLoginFailureWindow()) : null;
+        boolean locked = failures >= properties.getLoginMaxFailures();
+        long lockSeconds = properties.getLoginFailureWindow().toSeconds();
+        String lockedUntilSql = locked ? "TIMESTAMPADD(SECOND, " + lockSeconds + ", CURRENT_TIMESTAMP)" : "NULL";
         if (states.isEmpty()) {
-            jdbcTemplate.update("INSERT INTO agent_login_guard (guard_key, failures, window_started_at, locked_until, updated_at) VALUES (?, ?, ?, ?, ?)", key, failures, Timestamp.from(now), lockUntil == null ? null : Timestamp.from(lockUntil), Timestamp.from(now));
+            jdbcTemplate.update("INSERT INTO agent_login_guard (guard_key, failures, window_started_at, locked_until, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, " + lockedUntilSql + ", CURRENT_TIMESTAMP)", key, failures);
         } else {
-            jdbcTemplate.update("UPDATE agent_login_guard SET failures = ?, window_started_at = ?, locked_until = ?, updated_at = ? WHERE guard_key = ?", failures, Timestamp.from(now), lockUntil == null ? null : Timestamp.from(lockUntil), Timestamp.from(now), key);
+            jdbcTemplate.update("UPDATE agent_login_guard SET failures = ?, window_started_at = CURRENT_TIMESTAMP, locked_until = " + lockedUntilSql + ", updated_at = CURRENT_TIMESTAMP WHERE guard_key = ?", failures, key);
         }
     }
 
