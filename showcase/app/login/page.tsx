@@ -1,14 +1,15 @@
 "use client";
 
-import { LockOutlined, MobileOutlined, SafetyCertificateOutlined, UserOutlined } from "@ant-design/icons";
+import { LockOutlined, MobileOutlined, ReloadOutlined, SafetyCertificateOutlined, UserOutlined } from "@ant-design/icons";
 import { Button, Input, Tabs, message } from "antd";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveAgentAuthSession, type AgentAuthSession } from "../../lib/agentAuth";
 import styles from "./page.module.css";
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_AGENT_API_BASE_URL ?? "http://127.0.0.1:8080";
 type Mode = "login" | "register" | "reset";
+type Captcha = { captchaId: string; imageDataUrl: string };
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,48 +18,66 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [captcha, setCaptcha] = useState<Captcha>();
   const [loading, setLoading] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
+
+  const loadCaptcha = async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/v1/auth/captcha`, { credentials: "include" });
+      if (!response.ok) return;
+      const payload = await response.json() as Captcha;
+      setCaptcha(payload); setCaptchaAnswer("");
+    } catch { /* CAPTCHA can be disabled in local development. */ }
+  };
+  useEffect(() => { void loadCaptcha(); }, []);
 
   const sendCode = async () => {
     setSendingCode(true);
     try {
       const purpose = mode === "register" ? "REGISTER" : "RESET_PASSWORD";
-      const response = await fetch(`${apiBaseUrl}/api/v1/auth/sms/code`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, purpose }) });
+      const response = await fetch(`${apiBaseUrl}/api/v1/auth/sms/code`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, purpose, captchaId: captcha?.captchaId, captchaAnswer }),
+      });
       const payload = await response.json().catch(() => undefined) as { debugCode?: string; message?: string } | undefined;
       if (!response.ok) throw new Error(payload?.message || `SMS request failed: ${response.status}`);
-      message.success(payload?.debugCode ? `\u5f00\u53d1\u9a8c\u8bc1\u7801\uff1a${payload.debugCode}` : "\u9a8c\u8bc1\u7801\u5df2\u53d1\u9001");
-    } catch (error) { message.error(error instanceof Error ? error.message : "\u9a8c\u8bc1\u7801\u53d1\u9001\u5931\u8d25"); }
+      message.success(payload?.debugCode ? `开发验证码：${payload.debugCode}` : "验证码已发送");
+      await loadCaptcha();
+    } catch (error) { message.error(error instanceof Error ? error.message : "验证码发送失败"); await loadCaptcha(); }
     finally { setSendingCode(false); }
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
+    event.preventDefault(); setLoading(true);
     try {
       const endpoint = mode === "login" ? "login" : mode === "register" ? "register" : "password/reset";
-      const body = mode === "login" ? { username, password } : mode === "register" ? { username, password, phone, code } : { phone, password, code };
-      const response = await fetch(`${apiBaseUrl}/api/v1/auth/${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const payload = await response.json().catch(() => undefined) as AgentAuthSession & { message?: string };
+      const body = mode === "login"
+        ? { username, password, captchaId: captcha?.captchaId, captchaAnswer }
+        : mode === "register" ? { username, password, phone, code } : { phone, password, code };
+      const response = await fetch(`${apiBaseUrl}/api/v1/auth/${endpoint}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json().catch(() => undefined) as AgentAuthSession & { message?: string } | undefined;
       if (!response.ok) throw new Error(payload?.message || `Request failed: ${response.status}`);
-      saveAgentAuthSession(payload);
-      message.success(mode === "login" ? "\u767b\u5f55\u6210\u529f" : mode === "register" ? "\u6ce8\u518c\u6210\u529f" : "\u5bc6\u7801\u5df2\u91cd\u7f6e");
+      saveAgentAuthSession(payload as AgentAuthSession);
+      message.success(mode === "login" ? "登录成功" : mode === "register" ? "注册成功" : "密码已重置");
       router.replace("/agent-studio");
-    } catch (error) { message.error(error instanceof Error ? error.message : "\u64cd\u4f5c\u5931\u8d25"); }
+    } catch (error) { message.error(error instanceof Error ? error.message : "操作失败"); await loadCaptcha(); }
     finally { setLoading(false); }
   };
 
   const requiresCode = mode !== "login";
   return <main className={styles.page}><section className={styles.card}>
-    <p>JENDA AGENT / ACCOUNT</p><h1>{"\u8fdb\u5165\u4f60\u7684"}<br /><em>{"\u79c1\u4eba\u5de5\u4f5c\u533a"}</em></h1>
-    <span>{"\u77ed\u671f Access Token + \u53ef\u64a4\u9500 Refresh Token\uff0c\u767b\u51fa\u540e\u7acb\u5373\u5931\u6548\u3002"}</span>
-    <Tabs activeKey={mode} onChange={(value) => setMode(value as Mode)} items={[{ key: "login", label: "\u767b\u5f55" }, { key: "register", label: "\u77ed\u4fe1\u6ce8\u518c" }, { key: "reset", label: "\u627e\u56de\u5bc6\u7801" }]} />
+    <p>JENDA AGENT / ACCOUNT</p><h1>进入你的<br /><em>私人工作区</em></h1>
+    <span>短期 Access Token + HttpOnly Refresh Cookie，退出后立即失效。</span>
+    <Tabs activeKey={mode} onChange={(value) => setMode(value as Mode)} items={[{ key: "login", label: "登录" }, { key: "register", label: "短信注册" }, { key: "reset", label: "找回密码" }]} />
     <form onSubmit={(event) => void submit(event)}>
-      {mode !== "reset" && <label>{"\u8d26\u53f7"}<Input prefix={<UserOutlined />} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="3-32 \u4f4d\u5b57\u6bcd\u3001\u6570\u5b57\u3001_ \u6216 -" /></label>}
-      {requiresCode && <label>{"\u624b\u673a\u53f7"}<Input prefix={<MobileOutlined />} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="11 \u4f4d\u4e2d\u56fd\u5927\u9646\u624b\u673a\u53f7" /></label>}
-      <label>{"\u5bc6\u7801"}<Input.Password prefix={<LockOutlined />} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="\u81f3\u5c11 8 \u4f4d" /></label>
-      {requiresCode && <label>{"\u77ed\u4fe1\u9a8c\u8bc1\u7801"}<div className={styles.codeLine}><Input prefix={<SafetyCertificateOutlined />} value={code} onChange={(event) => setCode(event.target.value)} placeholder="6 \u4f4d\u9a8c\u8bc1\u7801" /><Button htmlType="button" loading={sendingCode} onClick={() => void sendCode()}>{"\u53d1\u9001\u9a8c\u8bc1\u7801"}</Button></div></label>}
-      <Button type="primary" htmlType="submit" loading={loading} block>{mode === "login" ? "\u767b\u5f55" : mode === "register" ? "\u9a8c\u8bc1\u5e76\u6ce8\u518c" : "\u91cd\u7f6e\u5bc6\u7801"}</Button>
+      {mode !== "reset" && <label>账号<Input prefix={<UserOutlined />} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="3-32 位字母、数字、_ 或 -" /></label>}
+      {requiresCode && <label>手机号<Input prefix={<MobileOutlined />} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="11 位中国大陆手机号" /></label>}
+      <label>密码<Input.Password prefix={<LockOutlined />} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 位" /></label>
+      {captcha && <label>安全验证码<div className={styles.captchaLine}><Input prefix={<SafetyCertificateOutlined />} value={captchaAnswer} onChange={(event) => setCaptchaAnswer(event.target.value.toUpperCase())} placeholder="输入图片字符" /><button className={styles.captchaImage} type="button" onClick={() => void loadCaptcha()} title="换一张验证码"><img src={captcha.imageDataUrl} alt="安全验证码" /><ReloadOutlined /></button></div></label>}
+      {requiresCode && <label>短信验证码<div className={styles.codeLine}><Input prefix={<SafetyCertificateOutlined />} value={code} onChange={(event) => setCode(event.target.value)} placeholder="6 位验证码" /><Button htmlType="button" loading={sendingCode} onClick={() => void sendCode()}>发送验证码</Button></div></label>}
+      <Button type="primary" htmlType="submit" loading={loading} block>{mode === "login" ? "登录" : mode === "register" ? "验证并注册" : "重置密码"}</Button>
     </form>
   </section></main>;
 }

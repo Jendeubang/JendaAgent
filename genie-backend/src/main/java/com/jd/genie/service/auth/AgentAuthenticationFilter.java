@@ -31,7 +31,7 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String uri = request.getRequestURI();
-        return !(uri.startsWith("/api/v1/agent") || uri.startsWith("/api/v2/agent"));
+        return !(uri.startsWith("/api/v1/agent") || uri.startsWith("/api/v2/agent") || uri.startsWith("/api/v1/account") || uri.startsWith("/api/v1/admin"));
     }
 
     @Override

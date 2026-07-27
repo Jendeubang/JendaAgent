@@ -1,6 +1,5 @@
 package com.jd.genie.model.auth;
 
-import jakarta.validation.constraints.NotBlank;
-
-public record AgentRefreshRequest(@NotBlank String refreshToken) {
+/** Deprecated body field is accepted only during migration; browser clients use an HttpOnly cookie. */
+public record AgentRefreshRequest(String refreshToken) {
 }

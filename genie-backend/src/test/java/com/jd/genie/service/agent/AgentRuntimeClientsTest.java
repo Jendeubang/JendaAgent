@@ -31,6 +31,6 @@ class AgentRuntimeClientsTest {
 
         assertFalse(result.invoked());
         assertFalse(result.success());
-        assertTrue(result.summary().contains("未配置"));
+        assertTrue(result.summary().contains("not configured"));
     }
 }

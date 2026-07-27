@@ -6,5 +6,7 @@ import jakarta.validation.constraints.Size;
 
 public record AgentAuthRequest(
         @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{3,32}") String username,
-        @NotBlank @Size(min = 8, max = 128) String password) {
+        @NotBlank @Size(min = 8, max = 128) String password,
+        String captchaId,
+        String captchaAnswer) {
 }

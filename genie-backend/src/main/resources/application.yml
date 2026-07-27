@@ -20,6 +20,12 @@ spring:
       schema-locations: classpath:db/schema.sql
       data-locations: classpath:db/data.sql
       mode: always
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: 750ms
 mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
   configuration:

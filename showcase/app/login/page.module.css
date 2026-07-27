@@ -24,3 +24,7 @@
 .card :global(.ant-btn-primary) { height: 42px; background: #173a34; }
 
 @media (max-width: 520px) { .card { padding: 30px 24px; box-shadow: 8px 8px 0 #203b35; } }
+
+.captchaLine { display: flex; gap: 8px; align-items: center; }
+.captchaImage { height: 34px; width: 132px; display: flex; align-items: center; gap: 5px; padding: 0 6px; border: 1px solid #d7e3f7; border-radius: 7px; background: #fff; cursor: pointer; overflow: hidden; color: #356ed8; }
+.captchaImage img { width: 96px; height: 30px; object-fit: contain; }
