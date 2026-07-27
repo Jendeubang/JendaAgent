@@ -183,15 +183,15 @@ function DeliveryCard({ asset, onPreview }: { asset: WorkspaceAsset; onPreview: 
   return <article className={styles.deliveryCard}>
     <button type="button" className={styles.deliveryImageButton} onClick={() => onPreview(asset)} aria-label="\u9884\u89c8\u751f\u6210\u56fe\u7247">
       <img src={asset.imageUrl} alt={asset.title} referrerPolicy="no-referrer" />
-      <span><ExpandOutlined /> \u70b9\u51fb\u67e5\u770b\u5927\u56fe</span>
+      <span><ExpandOutlined /> {"\u70b9\u51fb\u67e5\u770b\u5927\u56fe"}</span>
     </button>
     <div className={styles.deliveryInfo}>
       <div><em>JENDA OUTPUT</em><strong>{asset.title || "\u751f\u6210\u7ed3\u679c"}</strong></div>
-      <small>\u5df2\u5f52\u6863\u5230\u60a8\u7684 COS \u8d44\u4ea7\u5e93</small>
+      <small>{"\u5df2\u5f52\u6863\u5230\u60a8\u7684 COS \u8d44\u4ea7\u5e93"}</small>
       <div className={styles.deliveryActions}>
-        <Button size="small" icon={<ExpandOutlined />} onClick={() => onPreview(asset)}>\u9884\u89c8</Button>
-        <Button size="small" icon={<CopyOutlined />} loading={busy === "copy"} onClick={() => void copy()}>\u590d\u5236</Button>
-        <Button size="small" type="primary" icon={<DownloadOutlined />} loading={busy === "download"} onClick={() => void download()}>\u4e0b\u8f7d</Button>
+        <Button size="small" icon={<ExpandOutlined />} onClick={() => onPreview(asset)}>{"\u9884\u89c8"}</Button>
+        <Button size="small" icon={<CopyOutlined />} loading={busy === "copy"} onClick={() => void copy()}>{"\u590d\u5236"}</Button>
+        <Button size="small" type="primary" icon={<DownloadOutlined />} loading={busy === "download"} onClick={() => void download()}>{"\u4e0b\u8f7d"}</Button>
       </div>
     </div>
   </article>;
@@ -358,22 +358,22 @@ export default function JendaAgentPage() {
                 <div className={styles.processMeta}><div><b>{eventStage(event)}</b><small>{event.agent}</small></div><em>{event.status}</em></div>
                 {event.messageType === "prompt_optimization" ? <PromptOptimizationView event={event} /> : <p>{getEventContent(event)}</p>}
                 {event.messageType === "confirmation_required" && <div className={styles.confirmationActions}>
-                  <Button type="primary" size="small" loading={running} onClick={() => void resolveConfirmation(event, true)}>\u786e\u8ba4\u7ee7\u7eed</Button>
-                  <Button size="small" disabled={running} onClick={() => void resolveConfirmation(event, false)}>\u62d2\u7edd</Button>
+                  <Button type="primary" size="small" loading={running} onClick={() => void resolveConfirmation(event, true)}>{"\u786e\u8ba4\u7ee7\u7eed"}</Button>
+                  <Button size="small" disabled={running} onClick={() => void resolveConfirmation(event, false)}>{"\u62d2\u7edd"}</Button>
                 </div>}
               </div>
             </article>)}
             {running && <article className={`${styles.processItem} ${styles.processPending}`}><div className={styles.processRail}><span>...</span></div><div className={styles.processBody}><div className={styles.processMeta}><div><b>{copy.waiting}</b><small>Jenda Agent</small></div><em>live</em></div></div></article>}
           </div>
           {assets.some((asset) => asset.source === "generated") && <section className={styles.deliverySection}>
-            <div className={styles.deliveryHead}><div><span>\u4efb\u52a1\u5b8c\u6210</span><h2>\u4f60\u7684\u56fe\u50cf\u4ea4\u4ed8\u7269</h2></div><small>{assets.filter((asset) => asset.source === "generated").length} \u5f20\u6210\u54c1</small></div>
+            <div className={styles.deliveryHead}><div><span>{"\u4efb\u52a1\u5b8c\u6210"}</span><h2>{"\u4f60\u7684\u56fe\u50cf\u4ea4\u4ed8\u7269"}</h2></div><small>{assets.filter((asset) => asset.source === "generated").length} {"\u5f20\u6210\u54c1"}</small></div>
             <div className={styles.deliveryGrid}>{assets.filter((asset) => asset.source === "generated").map((asset) => <DeliveryCard key={asset.assetId} asset={asset} onPreview={setPreviewAsset} />)}</div>
           </section>}
           {assets.length > 0 && <div className={styles.assetGrid}>{assets.map((asset) => <button type="button" key={asset.assetId} onClick={() => setPreviewAsset(asset)}><img src={asset.imageUrl} alt={asset.title} referrerPolicy="no-referrer" /><span>{asset.source === "generated" ? "JENDA OUTPUT" : "REFERENCE"}</span></button>)}</div>}
         </section>}
         {previewAsset && <Modal open footer={null} onCancel={() => setPreviewAsset(undefined)} width={860} centered className={styles.previewModal} title={previewAsset.title || "\u56fe\u50cf\u4ea4\u4ed8\u7269"}>
           <img className={styles.previewImage} src={previewAsset.imageUrl} alt={previewAsset.title} referrerPolicy="no-referrer" />
-          <div className={styles.previewActions}><Button icon={<CopyOutlined />} onClick={() => void copyAsset(previewAsset)}>\u590d\u5236\u56fe\u7247</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => void downloadAsset(previewAsset)}>\u4e0b\u8f7d\u56fe\u7247</Button></div>
+          <div className={styles.previewActions}><Button icon={<CopyOutlined />} onClick={() => void copyAsset(previewAsset)}>{"\u590d\u5236\u56fe\u7247"}</Button><Button type="primary" icon={<DownloadOutlined />} onClick={() => void downloadAsset(previewAsset)}>{"\u4e0b\u8f7d\u56fe\u7247"}</Button></div>
         </Modal>}
         <section className={styles.composerSection}>
           {upload && <div className={styles.attachment}><FileImageOutlined /><span>{fileName}</span><button type="button" onClick={() => { setUpload(undefined); setFileName(""); }}>x</button></div>}
