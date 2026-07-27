@@ -23,12 +23,12 @@ public class ReActDecisionGenerator {
         if (completion.invoked()) {
             try {
                 ReActDecision decision = objectMapper.readValue(extractJson(completion.content()), ReActDecision.class);
-                if (decision.action() != null) return new GeneratedDecision(normalize(decision, request), true, completion.provider());
+                if (decision.action() != null) return new GeneratedDecision(continueRequiredWork(normalize(decision, request), request, observations), true, completion.provider());
             } catch (Exception ignored) {
                 // Continue with a deterministic decision below.
             }
         }
-        return new GeneratedDecision(fallback(request, observations), false, completion.provider());
+        return new GeneratedDecision(continueRequiredWork(fallback(request, observations), request, observations), false, completion.provider());
     }
 
     private String systemPrompt() {
@@ -60,6 +60,32 @@ public class ReActDecisionGenerator {
         else if (!request.getImageUrls().isEmpty() && contains(prompt, "edit", "background", "replace", "style", "\u7f16\u8f91", "\u80cc\u666f", "\u66ff\u6362")) action = ReActAction.IMAGE_EDIT;
         else action = ReActAction.IMAGE_GENERATE;
         return new ReActDecision("Model decision is unavailable; selected a compatible safe action.", action, request.getPrompt(), "Observe the tool result and then decide whether to finish.");
+    }
+
+    /**
+     * OCR can be an intermediate step, for example when users ask to extract copy and
+     * then create a poster. Do not allow a generic FINISH decision to drop that second task.
+     */
+    private ReActDecision continueRequiredWork(ReActDecision decision, AgentRunRequest request, String observations) {
+        if (decision.action() != ReActAction.FINISH || !needsPosterAfterOcr(request.getPrompt(), observations)) {
+            return decision;
+        }
+        String prompt = request.getPrompt() + "\nOCR extracted copy:\n" + observations;
+        return new ReActDecision(
+                "OCR completed; the requested poster generation remains pending.",
+                ReActAction.IMAGE_GENERATE,
+                limit(prompt, 8000),
+                "Generate the requested visual using the extracted copy, then summarize the delivery.");
+    }
+
+    private boolean needsPosterAfterOcr(String prompt, String observations) {
+        String normalizedPrompt = prompt == null ? "" : prompt.toLowerCase(Locale.ROOT);
+        String normalizedObservations = observations == null ? "" : observations.toLowerCase(Locale.ROOT);
+        boolean ocrCompleted = normalizedObservations.contains("ocr:");
+        boolean generatedAlready = normalizedObservations.contains("image_generate:");
+        boolean asksForOcr = contains(normalizedPrompt, "ocr", "extract text", "read text", "识别", "提取文字", "文案");
+        boolean asksForVisual = contains(normalizedPrompt, "generate", "create", "poster", "image", "生成", "海报", "宣传图", "配图", "图片");
+        return ocrCompleted && !generatedAlready && asksForOcr && asksForVisual;
     }
 
     private String extractJson(String value) {
