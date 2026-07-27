@@ -35,3 +35,7 @@ docker compose --env-file .\deploy\.env -f .\deploy\docker-compose.yml up --buil
 ```
 
 Open `/zh/agent`, then either reload the current session or create a new image task. Generated images should appear in the delivery cards and remain available after a page reload.
+## Frontend Reload Behavior
+
+- /zh/agent fetches the active session workspace when the page mounts.
+- The result panel renders whenever events or assets exist, so a restored historical image is visible even before SSE history is replayed.

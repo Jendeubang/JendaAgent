@@ -268,6 +268,13 @@ export default function JendaAgentPage() {
     if (response.ok) setAssets((await response.json() as WorkspaceSnapshot).assets);
   };
 
+  useEffect(() => {
+    if (!sessionId) return;
+    void agentFetch(`${apiBaseUrl}/api/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace`)
+      .then(async (response) => { if (response.ok) setAssets((await response.json() as WorkspaceSnapshot).assets); })
+      .catch(() => undefined);
+  }, [sessionId]);
+
   const consumeStream = async (response: Response) => {
     if (!response.body) throw new Error(copy.error);
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
@@ -327,7 +334,7 @@ export default function JendaAgentPage() {
     <main className={styles.page}>
       <CrispixHeader />
       <section className={styles.canvas}>
-        {events.length === 0 ? <div className={styles.hero}>
+        {events.length === 0 && assets.length === 0 ? <div className={styles.hero}>
           <div className={styles.badge}><span className={styles.badgeMark}>J</span><span>{copy.badge}</span><b>NEW</b></div>
           <h1><span>{copy.lineOne}</span><span>{copy.lineTwo}<em>.</em></span></h1>
           <p>{copy.subtitle}</p>
