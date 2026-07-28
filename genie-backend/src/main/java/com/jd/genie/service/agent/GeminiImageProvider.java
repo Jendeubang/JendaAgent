@@ -93,7 +93,7 @@ public class GeminiImageProvider implements ImageModelProvider {
         List<Map<String, String>> input = new ArrayList<>();
         input.add(Map.of("type", "text", "text", request.prompt()));
         for (GeminiImage reference : references(request.image_urls())) input.add(Map.of("type", "image", "mime_type", reference.mimeType(), "data", reference.data()));
-        return Map.of("model", model, "input", input, "response_format", Map.of("type", "image", "mime_type", properties.getOutputMimeType(), "image_size", properties.getImageSize()));
+        return Map.of("model", model, "input", input, "response_format", Map.of("type", "image", "mime_type", outputMimeType(), "image_size", properties.getImageSize()));
     }
     private List<GeminiImage> references(List<String> urls) {
         if (urls == null || urls.isEmpty()) return List.of();
@@ -118,7 +118,7 @@ public class GeminiImageProvider implements ImageModelProvider {
     }
     private GeminiImage image(JsonNode root) {
         JsonNode direct = root.path("output_image");
-        if (direct.hasNonNull("data")) return new GeminiImage(direct.path("data").asText(), normalizeMime(direct.path("mime_type").asText(properties.getOutputMimeType())));
+        if (direct.hasNonNull("data")) return new GeminiImage(direct.path("data").asText(), normalizeMime(direct.path("mime_type").asText(outputMimeType())));
         GeminiImage found = findImage(root);
         if (found == null || found.data().isBlank()) throw new IllegalStateException("Gemini response contains no image data");
         return found;
@@ -126,7 +126,7 @@ public class GeminiImageProvider implements ImageModelProvider {
     private GeminiImage findImage(JsonNode node) {
         if (node == null) return null;
         if (node.isObject()) {
-            if ("image".equals(node.path("type").asText()) && node.hasNonNull("data")) return new GeminiImage(node.path("data").asText(), normalizeMime(node.path("mime_type").asText(properties.getOutputMimeType())));
+            if ("image".equals(node.path("type").asText()) && node.hasNonNull("data")) return new GeminiImage(node.path("data").asText(), normalizeMime(node.path("mime_type").asText(outputMimeType())));
             java.util.Iterator<JsonNode> values = node.elements(); while (values.hasNext()) { GeminiImage found = findImage(values.next()); if (found != null) return found; }
         } else if (node.isArray()) for (JsonNode item : node) { GeminiImage found = findImage(item); if (found != null) return found; }
         return null;
@@ -145,6 +145,8 @@ public class GeminiImageProvider implements ImageModelProvider {
     private void validateConfiguration(String model) { if (!properties.isEnabled()) throw new IllegalStateException("Gemini image gateway is disabled; set AGENT_GATEWAY_GEMINI_ENABLED=true"); if (blank(properties.getApiKey()) || blank(properties.getEndpoint()) || blank(model)) throw new IllegalStateException("Gemini requires endpoint, API key, and model configuration"); }
     private String normalize(String value) { return value == null ? "" : value.trim().toLowerCase(Locale.ROOT); }
     private String normalizeMime(String value) { String mime = value == null ? "" : value.split(";", 2)[0].trim().toLowerCase(Locale.ROOT); return "image/jpeg".equals(mime) || "image/webp".equals(mime) ? mime : "image/png"; }
+    /** Gemini Interactions image output currently accepts JPEG only. */
+    private String outputMimeType() { return "image/jpeg"; }
     private Duration safeTimeout(Duration timeout) { return timeout == null || timeout.isZero() || timeout.isNegative() ? Duration.ofSeconds(600) : timeout; }
     private boolean blank(String value) { return value == null || value.isBlank(); }
     private String concise(String value) { return value == null ? "unknown error" : value.substring(0, Math.min(500, value.length())); }

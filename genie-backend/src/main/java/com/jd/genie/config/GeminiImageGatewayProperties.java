@@ -19,7 +19,7 @@ public class GeminiImageGatewayProperties {
     private boolean proEnabled;
     private boolean proFallbackToNanoBanana2 = true;
     private String imageSize = "2K";
-    private String outputMimeType = "image/png";
+    private String outputMimeType = "image/jpeg";
     private int maxReferenceImages = 6;
     private long maxReferenceImageBytes = 8L * 1024 * 1024;
     private Duration timeout = Duration.ofSeconds(600);
