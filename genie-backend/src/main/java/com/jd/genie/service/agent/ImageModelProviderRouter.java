@@ -52,7 +52,9 @@ public class ImageModelProviderRouter {
                         recovered.provider(), recovered.archivedToCos());
             } catch (RuntimeException fallbackFailure) {
                 primaryFailure.addSuppressed(fallbackFailure);
-                throw primaryFailure;
+                throw new IllegalStateException("Image provider " + primary.id() + " failed: "
+                        + safeMessage(primaryFailure) + "; fallback " + fallback.id() + " also failed: "
+                        + safeMessage(fallbackFailure), primaryFailure);
             }
         }
     }
@@ -96,6 +98,9 @@ public class ImageModelProviderRouter {
                 || message.contains("ssl")
                 || message.contains("eof")
                 || message.matches(".*http 5\\d{2}.*");
+    }
+    private String safeMessage(RuntimeException error) {
+        return error.getMessage() == null || error.getMessage().isBlank() ? error.getClass().getSimpleName() : error.getMessage();
     }
     private boolean blank(String value) {
         return value == null || value.isBlank();
