@@ -16,4 +16,7 @@ public interface AgentPlanExecutionMapper extends BaseMapper<AgentPlanExecutionE
 
     @Update("UPDATE agent_plan_execution SET status = #{status}, updated_at = #{updatedAt} WHERE run_id = #{runId}")
     int updateStatus(@Param("runId") String runId, @Param("status") String status, @Param("updatedAt") java.sql.Timestamp updatedAt);
+
+    @Update("UPDATE agent_plan_execution SET plan_json = #{planJson}, status = #{status}, updated_at = #{updatedAt} WHERE run_id = #{runId}")
+    int replacePlan(@Param("runId") String runId, @Param("planJson") String planJson, @Param("status") String status, @Param("updatedAt") java.sql.Timestamp updatedAt);
 }

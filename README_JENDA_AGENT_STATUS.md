@@ -120,3 +120,8 @@ Configuration and provider response requirements are documented in `README_JENDA
 ## Agent Delivery Panel Default
 
 The /zh/agent delivery panel now defaults to collapsed, including immediately after generated assets arrive. Users expand it explicitly through its section toggle; generated and reference assets remain persisted and reusable.
+## Tool Capability Registry and True Replanning (Step 74)
+
+`AgentToolCapabilityRegistry` now gives PlanningAgent a runtime-derived, credential-free list of selectable tools. The same snapshot is emitted through SSE and can be read from authenticated `GET /api/v1/agent/tool-capabilities`.
+
+Structured Plan-Solve now persists immutable plan revisions in `agent_plan_revision`. Terminal failed tasks or unavailable tool skips can trigger a bounded PlanningAgent replan. Replacement tasks are prefixed by plan revision, preserving previous task history for audit and replay. See `README_JENDA_AGENT_STATUS_STEP74_CAPABILITY_REPLAN.md` for configuration and persistence details.

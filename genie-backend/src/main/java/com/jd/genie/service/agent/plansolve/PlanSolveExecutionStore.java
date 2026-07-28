@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jd.genie.model.agent.AgentRunRequest;
 import com.jd.genie.persistence.agent.entity.AgentPlanApprovalEntity;
 import com.jd.genie.persistence.agent.entity.AgentPlanExecutionEntity;
+import com.jd.genie.persistence.agent.entity.AgentPlanRevisionEntity;
 import com.jd.genie.persistence.agent.entity.AgentPlanTaskStateEntity;
 import com.jd.genie.persistence.agent.service.AgentPlanPersistenceService;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Durable state required to pause and resume a structured DAG safely. */
+/** Durable state required to pause, resume, and replan a structured DAG safely. */
 @Repository
 @RequiredArgsConstructor
 public class PlanSolveExecutionStore {
@@ -35,17 +36,17 @@ public class PlanSolveExecutionStore {
         execution.setStatus("RUNNING");
         execution.setCreatedAt(timestamp);
         execution.setUpdatedAt(timestamp);
-        List<AgentPlanTaskStateEntity> tasks = plan.tasks().stream().map(task -> {
-            AgentPlanTaskStateEntity state = new AgentPlanTaskStateEntity();
-            state.setRunId(runId);
-            state.setTaskId(task.id());
-            state.setState(PlanTaskState.PENDING.name());
-            state.setAttempts(0);
-            state.setUpdatedAt(timestamp);
-            return state;
-        }).toList();
-        persistence.create(execution, tasks);
+        persistence.create(execution, pendingTasks(runId, plan, timestamp), revision(runId, 1, null, "initial plan", plan, Map.of(), timestamp));
     }
+
+    public void replacePlan(String runId, int revisionNo, int parentRevisionNo, String reason, StructuredAgentPlan plan,
+                            Map<String, TaskSnapshot> previousStates) {
+        Timestamp timestamp = Timestamp.from(Instant.now());
+        persistence.replacePlan(runId, json(plan), pendingTasks(runId, plan, timestamp),
+                revision(runId, revisionNo, parentRevisionNo, reason, plan, previousStates, timestamp));
+    }
+
+    public int latestRevisionNo(String runId) { return persistence.latestRevisionNo(runId); }
 
     public StoredExecution load(String ownerUserId, String sessionId, String runId) {
         AgentPlanExecutionEntity execution = persistence.load(ownerUserId, sessionId, runId);
@@ -78,6 +79,31 @@ public class PlanSolveExecutionStore {
     }
 
     public void updateRunStatus(String runId, String status) { persistence.updateRunStatus(runId, status); }
+
+    private List<AgentPlanTaskStateEntity> pendingTasks(String runId, StructuredAgentPlan plan, Timestamp timestamp) {
+        return plan.tasks().stream().map(task -> {
+            AgentPlanTaskStateEntity state = new AgentPlanTaskStateEntity();
+            state.setRunId(runId);
+            state.setTaskId(task.id());
+            state.setState(PlanTaskState.PENDING.name());
+            state.setAttempts(0);
+            state.setUpdatedAt(timestamp);
+            return state;
+        }).toList();
+    }
+
+    private AgentPlanRevisionEntity revision(String runId, int revisionNo, Integer parentRevisionNo, String reason,
+                                             StructuredAgentPlan plan, Map<String, TaskSnapshot> states, Timestamp timestamp) {
+        AgentPlanRevisionEntity value = new AgentPlanRevisionEntity();
+        value.setRunId(runId);
+        value.setRevisionNo(revisionNo);
+        value.setParentRevisionNo(parentRevisionNo);
+        value.setReason(reason);
+        value.setPlanJson(json(plan));
+        value.setStateSummaryJson(json(states));
+        value.setCreatedAt(timestamp);
+        return value;
+    }
 
     private String json(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception error) { throw new IllegalStateException("Could not persist Plan-Solve state", error); } }
     private <T> T read(String value, Class<T> type) { try { return objectMapper.readValue(value, type); } catch (Exception error) { throw new IllegalStateException("Could not restore Plan-Solve state", error); } }

@@ -4,6 +4,7 @@ import com.jd.genie.persistence.agent.mapper.AgentAssetMapper;
 import com.jd.genie.persistence.agent.mapper.AgentEventMapper;
 import com.jd.genie.persistence.agent.mapper.AgentPlanApprovalMapper;
 import com.jd.genie.persistence.agent.mapper.AgentPlanExecutionMapper;
+import com.jd.genie.persistence.agent.mapper.AgentPlanRevisionMapper;
 import com.jd.genie.persistence.agent.mapper.AgentPlanTaskStateMapper;
 import com.jd.genie.persistence.agent.mapper.AgentRunMapper;
 import com.jd.genie.persistence.agent.mapper.AgentSessionMapper;
@@ -87,6 +88,7 @@ public class AgentPersistenceConfiguration {
         configuration.addMapper(AgentToolCallMapper.class);
         configuration.addMapper(AgentAssetMapper.class);
         configuration.addMapper(AgentPlanExecutionMapper.class);
+        configuration.addMapper(AgentPlanRevisionMapper.class);
         configuration.addMapper(AgentPlanTaskStateMapper.class);
         configuration.addMapper(AgentPlanApprovalMapper.class);
         factory.setConfiguration(configuration);
@@ -123,6 +125,10 @@ public class AgentPersistenceConfiguration {
         return registry.mapper(AgentPlanExecutionMapper.class);
     }
 
+    @Bean
+    public AgentPlanRevisionMapper agentPlanRevisionMapper(AgentPersistenceMapperRegistry registry) {
+        return registry.mapper(AgentPlanRevisionMapper.class);
+    }
     @Bean
     public AgentPlanTaskStateMapper agentPlanTaskStateMapper(AgentPersistenceMapperRegistry registry) {
         return registry.mapper(AgentPlanTaskStateMapper.class);
