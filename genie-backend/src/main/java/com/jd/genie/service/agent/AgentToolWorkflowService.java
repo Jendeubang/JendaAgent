@@ -43,6 +43,7 @@ public class AgentToolWorkflowService {
     private final ConfiguredImageToolProvider configuredProvider;
     private final AgentToolOutputArchiver outputArchiver;
     private final ImageModelProviderRouter imageProviderRouter;
+    private final List<NativeImageToolProvider> nativeProviders;
     private final ObjectProvider<CosAgentImageStorage> cosStorageProvider;
     private final ObjectProvider<CosSignedUrlService> signedUrlServiceProvider;
 
@@ -76,15 +77,24 @@ public class AgentToolWorkflowService {
 
             ImageToolProviderResult providerResult = executeProvider(toolId, request, inputUrls, principal.userId());
             AgentToolWorkflowProperties.Endpoint config = properties.forTool(toolId);
-            AgentToolWorkflowProperties.Endpoint archiveConfig = archiveConfig(toolId, config);
-            AgentToolOutputArchiver.ArchivedImage archived = outputArchiver.archive(principal, sessionId, runId, toolId, providerResult, archiveConfig);
+            AgentToolWorkflowProperties.Endpoint archiveConfig = archiveConfig(toolId, config, providerResult.provider());
+            List<AgentToolOutputArchiver.ArchivedImage> archivedImages = new ArrayList<>();
+            for (ImageToolProviderOutput output : providerResult.allOutputs()) {
+                archivedImages.add(outputArchiver.archive(principal, sessionId, runId, toolId, output, archiveConfig));
+            }
+            if (archivedImages.isEmpty()) throw new IllegalStateException(toolId + " returned no archivable image output");
+            AgentToolOutputArchiver.ArchivedImage archived = archivedImages.get(0);
 
             emit(emitter, event(sessionId, runId, sequence, AgentEventType.TOOL_RESULT, AgentEventStatus.COMPLETE,
                     "ToolRouter", map("tool", toolId, "title", displayName(toolId) + " completed", "content", text(providerResult, toolId), "provider", providerResult.provider())));
-            emit(emitter, event(sessionId, runId, sequence, AgentEventType.IMAGE, AgentEventStatus.COMPLETE,
-                    "ImageToolchain", map("assetId", archived.assetId(), "title", displayName(toolId) + " output", "imageUrl", archived.imageUrl(), "sourceTool", toolId, "content", "archived to COS")));
+            for (int index = 0; index < archivedImages.size(); index++) {
+                AgentToolOutputArchiver.ArchivedImage image = archivedImages.get(index);
+                String title = index == 0 ? displayName(toolId) + " output" : displayName(toolId) + " layer " + (index + 1);
+                emit(emitter, event(sessionId, runId, sequence, AgentEventType.IMAGE, AgentEventStatus.COMPLETE,
+                        "ImageToolchain", map("assetId", image.assetId(), "title", title, "imageUrl", image.imageUrl(), "sourceTool", toolId, "content", "archived to COS")));
+            }
             emit(emitter, event(sessionId, runId, sequence, AgentEventType.SUMMARY, AgentEventStatus.COMPLETE,
-                    "SummaryAgent", map("title", "Tool workflow delivery", "content", displayName(toolId) + " completed and archived to COS", "assetId", archived.assetId())));
+                    "SummaryAgent", map("title", "Tool workflow delivery", "content", displayName(toolId) + " completed and archived " + archivedImages.size() + " image asset(s) to COS", "assetId", archived.assetId())));
             emit(emitter, event(sessionId, runId, sequence, AgentEventType.RUN_COMPLETED, AgentEventStatus.COMPLETE,
                     "ToolWorkflow", map("message", "run completed", "assetId", archived.assetId())));
             historyStore.completeRun(sessionId, runId, AgentEventStatus.COMPLETE);
@@ -108,28 +118,61 @@ public class AgentToolWorkflowService {
                                                     List<String> inputUrls, String ownerUserId) {
         AgentToolWorkflowProperties.Endpoint config = properties.forTool(toolId);
         String prompt = promptFor(toolId, request.prompt(), request.parameters());
+        NativeImageToolProvider nativeProvider = nativeProvider(toolId, request.modelProvider());
+        if (nativeProvider != null) return nativeProvider.execute(toolId, request, inputUrls);
         if (config.isEnabled() && config.getEndpoint() != null && !config.getEndpoint().isBlank()) {
             return configuredProvider.execute(toolId, config, prompt, inputUrls, request.parameters());
         }
         if (!properties.isFallbackToImageProvider() || !MODEL_WORKFLOWS.contains(toolId)) {
-            throw new IllegalStateException(toolId + " provider is not configured");
+            throw new IllegalStateException(toolId + " provider is not configured; select a configured dedicated model in the toolbox or set its AGENT_GATEWAY_* values");
         }
         String mode = config.getMode() == null ? "edit" : config.getMode().trim().toLowerCase();
+        String requestedProvider = request.modelProvider() == null || "auto".equalsIgnoreCase(request.modelProvider()) ? null : request.modelProvider();
         AgentToolGatewayRequest providerRequest = new AgentToolGatewayRequest(prompt, inputUrls,
-                inputUrls.isEmpty() || "generate".equals(mode) ? "image_generate" : "image_edit", null, ownerUserId);
+                inputUrls.isEmpty() || "generate".equals(mode) ? "image_generate" : "image_edit", requestedProvider, ownerUserId);
         ImageModelResult result = providerRequest.task_type().equals("image_generate")
                 ? imageProviderRouter.generate(providerRequest) : imageProviderRouter.edit(providerRequest);
         return new ImageToolProviderResult(result.imageUrl(), null, "image/png", result.text(), result.provider());
     }
 
-    private AgentToolWorkflowProperties.Endpoint archiveConfig(String toolId, AgentToolWorkflowProperties.Endpoint configured) {
-        if (configured.isEnabled() && configured.getEndpoint() != null && !configured.getEndpoint().isBlank()) return configured;
+    private NativeImageToolProvider nativeProvider(String toolId, String requestedProvider) {
+        String requested = requestedProvider == null ? "" : requestedProvider.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!requested.isBlank() && !"auto".equals(requested)) {
+            NativeImageToolProvider selected = nativeProviders.stream().filter(provider -> provider.id().equalsIgnoreCase(requested)).findFirst().orElse(null);
+            if (selected != null) {
+                if (!selected.supports(toolId)) throw new IllegalArgumentException("Model provider " + requested + " does not support tool " + toolId);
+                if (!selected.isConfigured()) throw new IllegalStateException("Model provider " + requested + " is not configured for " + toolId);
+                return selected;
+            }
+            return null;
+        }
+        if (configEnabled(toolId)) return null;
+        return nativeProviders.stream().filter(provider -> provider.supports(toolId) && provider.isConfigured()).findFirst().orElse(null);
+    }
+
+    private boolean configEnabled(String toolId) {
+        AgentToolWorkflowProperties.Endpoint config = properties.forTool(toolId);
+        return config.isEnabled() && config.getEndpoint() != null && !config.getEndpoint().isBlank();
+    }
+
+    private AgentToolWorkflowProperties.Endpoint archiveConfig(String toolId, AgentToolWorkflowProperties.Endpoint configured, String providerId) {
+        NativeImageToolProvider nativeProvider = nativeProviders.stream()
+                .filter(provider -> provider.supports(toolId) && provider.isConfigured()
+                        && provider.id().equalsIgnoreCase(providerId == null ? "" : providerId))
+                .findFirst().orElse(null);
         AgentToolWorkflowProperties.Endpoint fallback = new AgentToolWorkflowProperties.Endpoint();
         fallback.setEnabled(true);
+        if (nativeProvider != null) {
+            fallback.setEndpoint(nativeProvider.endpoint());
+            fallback.setResultHostSuffixes(nativeProvider.resultHostSuffixes());
+            return fallback;
+        }
+        if (configured.isEnabled() && configured.getEndpoint() != null && !configured.getEndpoint().isBlank()) return configured;
         fallback.setEndpoint("https://dashscope.aliyuncs.com");
         fallback.setResultHostSuffixes(".aliyuncs.com");
         return fallback;
     }
+
     private List<String> resolveInputs(String ownerUserId, List<String> assetIds) {
         List<String> urls = new ArrayList<>();
         for (String assetId : assetIds == null ? List.<String>of() : assetIds) {

@@ -32,6 +32,12 @@ public class AgentToolOutputArchiver {
 
     public ArchivedImage archive(AgentPrincipal owner, String sessionId, String runId, String toolId,
                                  ImageToolProviderResult result, AgentToolWorkflowProperties.Endpoint config) {
+        return archive(owner, sessionId, runId, toolId,
+                new ImageToolProviderOutput(result.imageUrl(), result.base64Data(), result.mediaType(), "result"), config);
+    }
+
+    public ArchivedImage archive(AgentPrincipal owner, String sessionId, String runId, String toolId,
+                                 ImageToolProviderOutput result, AgentToolWorkflowProperties.Endpoint config) {
         CosAgentImageStorage cos = cosStorageProvider.getIfAvailable();
         String mediaType = normalizeMime(result.mediaType());
         if (cos != null && result.imageUrl() != null && !result.imageUrl().isBlank()) {

@@ -10,6 +10,7 @@ import styles from "./page.module.css";
 
 type Field = { key: string; label: string; help: string; type: "text" | "textarea" | "number" | "select"; defaultValue: string; options?: string[]; required?: boolean };
 type ToolConfig = { slug: string; title: string; subtitle: string; accent: string; soft: string; icon: "upscale" | "enhance" | "layered" | "product" | "character" | "poster" | "emoji" | "detail" | "generic"; fields: Field[]; features: string[] };
+type ModelOption = { value: string; label: string; help: string };
 
 const copy = {
   category: "\u56fe\u50cf\u5904\u7406",
@@ -89,6 +90,7 @@ export default function ToolWorkbenchPage() {
   const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
   const config = tools[slug] ?? genericTool;
   const [values, setValues] = useState<Record<string, string>>({});
+  const [modelProvider, setModelProvider] = useState("auto");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [assetId, setAssetId] = useState("");
@@ -99,13 +101,19 @@ export default function ToolWorkbenchPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setValues(Object.fromEntries(config.fields.map((field) => [field.key, field.defaultValue])));
+    setValues(Object.fromEntries(config.fields.map((field) => [field.key, field.defaultValue]))); setModelProvider("auto");
     setFile(null); setPreviewUrl(""); setAssetId(""); setResultUrl(""); setEvents([]); setError(""); setProcessing(false); setCompleted(false);
   }, [config]);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  const formJson = JSON.stringify({ ...values, fileId: assetId || undefined }, null, 2);
+  const modelOptions: ModelOption[] = config.slug === "image-upscale" || config.slug === "seedvr2"
+    ? [{ value: "auto", label: "\u81ea\u52a8\u9009\u62e9", help: "\u4f18\u5148\u4f7f\u7528\u5df2\u914d\u7f6e\u7684 SeedVR2" }, { value: "seedvr2", label: "SeedVR2", help: "\u8d85\u5206\u3001\u6e05\u6670\u5ea6\u589e\u5f3a\u4e0e\u7ec6\u8282\u4fee\u590d" }]
+    : config.slug === "image-layered"
+      ? [{ value: "auto", label: "\u81ea\u52a8\u9009\u62e9", help: "\u4f18\u5148\u4f7f\u7528\u5df2\u914d\u7f6e\u7684\u8bed\u4e49\u5206\u5c42\u6a21\u578b" }, { value: "semantic-layer", label: "\u8bed\u4e49\u5206\u5c42 / SAM", help: "\u4e3b\u4f53\u3001\u80cc\u666f\u4e0e\u9644\u52a0\u56fe\u5c42\u72ec\u7acb\u5f52\u6863" }]
+      : [{ value: "auto", label: "\u81ea\u52a8\u9009\u62e9", help: "\u4f7f\u7528\u670d\u52a1\u7aef\u9ed8\u8ba4\u6a21\u578b" }, { value: "seedream", label: "SeedDream 4.5", help: "\u7535\u5546\u3001\u6d77\u62a5\u548c\u89d2\u8272\u56fe\u7684\u4f18\u5148\u9009\u62e9" }, { value: "gemini-nano-banana-2", label: "NanoBanana 2", help: "\u5feb\u901f\u751f\u6210\u4e0e\u53c2\u8003\u56fe\u7f16\u8f91" }, { value: "gemini-nano-banana-pro", label: "NanoBanana Pro", help: "\u9ad8\u8d28\u91cf\u3001\u590d\u6742\u6784\u56fe\uff08\u9700\u5728\u540e\u7aef\u5f00\u542f\uff09" }, { value: "qwen", label: "Qwen", help: "\u5df2\u914d\u7f6e\u7684\u901a\u4e49\u56fe\u50cf\u6a21\u578b" }];
+  const selectedModelHelp = modelOptions.find((item) => item.value === modelProvider)?.help ?? "";
+  const formJson = JSON.stringify({ ...values, modelProvider, fileId: assetId || undefined }, null, 2);
   const pageStyle = { "--tool-accent": config.accent, "--tool-soft": config.soft } as CSSProperties;
   const categoryLabel = config.slug === "character-setting-sheet" ? "\u98ce\u683c\u8f6c\u6362" : config.slug === "emoji-sticker" ? "\u521b\u610f\u751f\u6210" : config.slug.includes("ecommerce") || config.slug === "product-detail-image" ? "\u7535\u5546\u5de5\u5177" : copy.category;
   const uploadLabel = config.slug === "character-setting-sheet" ? "\u4e0a\u4f20\u89d2\u8272\u53c2\u8003\u56fe" : config.slug === "emoji-sticker" ? "\u4e0a\u4f20\u4eba\u7269/\u89d2\u8272\u56fe\u7247" : config.slug.includes("ecommerce") || config.slug === "product-detail-image" ? "\u4e0a\u4f20\u4ea7\u54c1\u56fe" : copy.upload;
@@ -148,7 +156,7 @@ export default function ToolWorkbenchPage() {
     try {
       const response = await agentFetch(`${process.env.NEXT_PUBLIC_AGENT_API_BASE_URL ?? "http://127.0.0.1:8080"}/api/v1/agent/sessions/${encodeURIComponent(getSessionId())}/tools/${encodeURIComponent(config.slug)}/runs`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputAssetIds: [assetId], prompt: values.description ?? "", parameters: values })
+        body: JSON.stringify({ inputAssetIds: [assetId], prompt: values.description ?? "", modelProvider, parameters: values })
       });
       if (!response.ok) throw new Error(`工具服务返回 HTTP ${response.status}`);
       if (!response.body) throw new Error("Tool did not return a stream");
@@ -162,7 +170,7 @@ export default function ToolWorkbenchPage() {
           try {
             const next = JSON.parse(data) as { messageType?: string; status?: string; agent?: string; payload?: { title?: string; content?: string; imageUrl?: string } };
             setEvents((current) => [...current, next]);
-            if (next.messageType === "image" && next.payload?.imageUrl) { setResultUrl(next.payload.imageUrl); setCompleted(true); }
+            if (next.messageType === "image" && next.payload?.imageUrl) { setResultUrl((current) => current || next.payload!.imageUrl!); setCompleted(true); }
           } catch { /* Ignore incomplete SSE frames. */ }
         }
       }
@@ -189,6 +197,7 @@ export default function ToolWorkbenchPage() {
           {file ? <div className={styles.fileRow}><img src={previewUrl} alt={file.name} /><span>{file.name}</span><button type="button" aria-label={copy.delete} onClick={clearFile}><DeleteOutlined /></button></div> : <label className={styles.uploadButton}><InboxOutlined />{uploadLabel}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={chooseFile} /></label>}
           <p className={styles.help}>{copy.uploadHint}</p>
           {config.fields.map((field) => <div className={styles.field} key={field.key}><label className={styles.label}>{field.required === false ? null : <b>*</b>}{field.label}</label>{field.type === "select" ? <select value={values[field.key] ?? ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}>{field.options?.map((option) => <option key={option}>{option}</option>)}</select> : field.type === "textarea" ? <Input.TextArea value={values[field.key] ?? ""} autoSize={{ minRows: 3, maxRows: 5 }} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} /> : <Input type={field.type} value={values[field.key] ?? ""} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} />}<p className={styles.help}>{field.help}</p></div>)}
+          <div className={styles.field}><label className={styles.label}>\u6a21\u578b\u9009\u62e9</label><select value={modelProvider} onChange={(event) => setModelProvider(event.target.value)}>{modelOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><p className={styles.help}>{selectedModelHelp}</p></div>
           <Button type="primary" block loading={processing} disabled={!assetId || processing} onClick={processImage}>{processing ? copy.processing : copy.process}</Button>
           <section className={styles.jsonCard}><h3>{copy.preview}</h3><pre>{formJson || "{}"}</pre></section>
         </div>
