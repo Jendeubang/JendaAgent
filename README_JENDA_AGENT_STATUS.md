@@ -125,3 +125,6 @@ The /zh/agent delivery panel now defaults to collapsed, including immediately af
 `AgentToolCapabilityRegistry` now gives PlanningAgent a runtime-derived, credential-free list of selectable tools. The same snapshot is emitted through SSE and can be read from authenticated `GET /api/v1/agent/tool-capabilities`.
 
 Structured Plan-Solve now persists immutable plan revisions in `agent_plan_revision`. Terminal failed tasks or unavailable tool skips can trigger a bounded PlanningAgent replan. Replacement tasks are prefixed by plan revision, preserving previous task history for audit and replay. See `README_JENDA_AGENT_STATUS_STEP74_CAPABILITY_REPLAN.md` for configuration and persistence details.
+## Shared Task Memory and Controlled ReAct (Step 75)
+
+Plan-Solve now persists each DAG subtask's input, output, asset IDs, state and failure cause in `agent_shared_task_memory`. `MemoryMergeAgent` produces a deterministic traceable context and `SummaryAgent` uses that merged context only. ReAct stays sequential by default but supports a validated two-call `PARALLEL` action for independent tools, with call/cost budgets, stable idempotency fingerprints, cancellation and an automatic client-side handoff to Plan-Solve when the model selects `PLAN_SOLVE`. See `README_JENDA_AGENT_STATUS_STEP75_SHARED_MEMORY_CONTROLLED_REACT.md`.

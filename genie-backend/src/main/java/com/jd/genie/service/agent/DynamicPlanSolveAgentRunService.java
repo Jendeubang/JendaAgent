@@ -9,6 +9,8 @@ import com.jd.genie.model.agent.AgentRunRequest;
 import com.jd.genie.model.auth.AgentPrincipal;
 import com.jd.genie.service.agent.plansolve.AgentToolCapabilityRegistry;
 import com.jd.genie.service.agent.plansolve.ObservableDagTaskExecutor;
+import com.jd.genie.service.agent.plansolve.MemoryMergeAgent;
+import com.jd.genie.service.agent.plansolve.MergedTaskContext;
 import com.jd.genie.service.agent.plansolve.PlanSolveExecutionStore;
 import com.jd.genie.service.agent.plansolve.PlanTaskSpec;
 import com.jd.genie.service.agent.plansolve.PlanTaskState;
@@ -43,6 +45,7 @@ public class DynamicPlanSolveAgentRunService {
     private final OpenAiCompatibleChatClient chatClient;
     private final AgentToolCapabilityRegistry capabilityRegistry;
     private final AgentPlanSolveProperties properties;
+    private final MemoryMergeAgent memoryMergeAgent;
 
     public SseEmitter startRun(String sessionId, AgentRunRequest request) {
         String runId = UUID.randomUUID().toString();
@@ -144,14 +147,19 @@ public class DynamicPlanSolveAgentRunService {
         }
 
         executionStore.updateRunStatus(execution.runId(), "COMPLETE");
+        MergedTaskContext merged = memoryMergeAgent.merge(execution.runId());
+        publish(emitter, event(execution.sessionId(), execution.runId(), sequence, AgentEventType.TASK, AgentEventStatus.COMPLETE,
+                "MemoryMergeAgent", Map.of("title", "MemoryMergeAgent: merged task context", "content", merged.summaryInput(),
+                "assetIds", merged.assetIds(), "failures", merged.failures(), "traceableTaskIds", merged.tasks().stream().map(task -> task.taskId()).toList())));
         String observation = stateSummary(outcome.states());
         ModelCompletion summary = chatClient.complete(
-                "You are SummaryAgent. Write a concise Chinese delivery summary based only on the execution states. Do not invent URLs.",
-                "User task: " + execution.request().getPrompt() + "\nDAG states: " + observation,
+                "You are SummaryAgent. Write a concise Chinese delivery summary based only on the merged task context. Do not invent URLs or unstated results.",
+                "User task: " + execution.request().getPrompt() + "\nMerged task context: " + merged.summaryInput(),
                 execution.request().getImageUrls());
         publish(emitter, event(execution.sessionId(), execution.runId(), sequence, AgentEventType.SUMMARY, AgentEventStatus.COMPLETE,
                 "SummaryAgent", Map.of("title", "SummaryAgent: DAG delivery", "content", summary.invoked() ? summary.content() : observation,
-                "dagStates", outcome.states(), "planRevision", revision, "replanLimitReached", replanReason != null)));
+                "dagStates", outcome.states(), "planRevision", revision, "replanLimitReached", replanReason != null,
+                "mergedAssetIds", merged.assetIds(), "mergedFailures", merged.failures(), "mergedTaskCount", merged.tasks().size())));
         publish(emitter, event(execution.sessionId(), execution.runId(), sequence, AgentEventType.RUN_COMPLETED, AgentEventStatus.COMPLETE,
                 "PlanSolveOrchestrator", Map.of("message", "structured Plan-Solve completed", "dagStates", outcome.states(), "planRevision", revision)));
         historyStore.completeRun(execution.sessionId(), execution.runId(), AgentEventStatus.COMPLETE);

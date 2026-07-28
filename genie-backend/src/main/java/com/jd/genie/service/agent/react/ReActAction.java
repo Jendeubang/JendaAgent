@@ -4,5 +4,7 @@ public enum ReActAction {
     OCR,
     IMAGE_GENERATE,
     IMAGE_EDIT,
+    PARALLEL,
+    PLAN_SOLVE,
     FINISH
 }

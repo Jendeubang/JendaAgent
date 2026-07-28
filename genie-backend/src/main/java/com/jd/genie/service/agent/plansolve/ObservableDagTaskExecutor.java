@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** Observable and bounded DAG executor; every transition is stored before it is emitted. */
+/** Observable bounded DAG executor with durable shared task memory. */
 @Component
 @RequiredArgsConstructor
 public class ObservableDagTaskExecutor {
@@ -35,6 +35,7 @@ public class ObservableDagTaskExecutor {
     private final HttpAgentToolClient toolClient;
     private final AgentAssetMetadataStore assetStore;
     private final PromptOpAgent promptOpAgent;
+    private final SharedTaskMemoryStore sharedMemory;
     private final ExecutorService workers = Executors.newFixedThreadPool(MAX_CONCURRENCY, runnable -> {
         Thread thread = new Thread(runnable, "plan-solve-dag-worker");
         thread.setDaemon(true);
@@ -43,7 +44,6 @@ public class ObservableDagTaskExecutor {
 
     public ExecutionOutcome execute(ExecutionContext context, EventPublisher events) throws Exception {
         Map<String, PlanSolveExecutionStore.TaskSnapshot> states = new LinkedHashMap<>(store.taskStates(context.runId()));
-        Map<String, PlanTaskSpec> tasks = context.plan().tasks().stream().collect(java.util.stream.Collectors.toMap(PlanTaskSpec::id, task -> task));
         while (true) {
             List<PlanTaskSpec> ready = new ArrayList<>();
             for (PlanTaskSpec task : context.plan().tasks()) {
@@ -52,18 +52,19 @@ public class ObservableDagTaskExecutor {
                 String reason = skipReason(task, states, context);
                 if (reason != null) {
                     transition(context, states, task, PlanTaskState.SKIPPED, snapshot.attempts(), Map.of("reason", reason));
+                    sharedMemory.skipped(context.runId(), task.id(), task.kind().name(), snapshot.attempts(), taskInput(context, task, task.prompt()), reason);
                     events.publish(AgentEventType.TASK, AgentEventStatus.SKIPPED, "DagTaskExecutor", taskPayload(task, "skipped", reason, snapshot.attempts()));
-                } else if (dependenciesComplete(task, states)) {
-                    ready.add(task);
-                }
+                } else if (dependenciesComplete(task, states)) ready.add(task);
             }
             if (ready.isEmpty()) {
                 if (isTerminal(states)) return new ExecutionOutcome(false, states);
                 for (PlanTaskSpec task : context.plan().tasks()) {
                     PlanSolveExecutionStore.TaskSnapshot snapshot = states.get(task.id());
                     if (snapshot.state() == PlanTaskState.PENDING) {
-                        transition(context, states, task, PlanTaskState.SKIPPED, snapshot.attempts(), Map.of("reason", "blocked by dependency"));
-                        events.publish(AgentEventType.TASK, AgentEventStatus.SKIPPED, "DagTaskExecutor", taskPayload(task, "skipped", "blocked by dependency", snapshot.attempts()));
+                        String reason = "blocked by dependency";
+                        transition(context, states, task, PlanTaskState.SKIPPED, snapshot.attempts(), Map.of("reason", reason));
+                        sharedMemory.skipped(context.runId(), task.id(), task.kind().name(), snapshot.attempts(), taskInput(context, task, task.prompt()), reason);
+                        events.publish(AgentEventType.TASK, AgentEventStatus.SKIPPED, "DagTaskExecutor", taskPayload(task, "skipped", reason, snapshot.attempts()));
                     }
                 }
                 continue;
@@ -104,8 +105,10 @@ public class ObservableDagTaskExecutor {
                         "PromptOpAgent", PromptOptimizationEventPayload.from(optimization, List.of(type)));
                 toolPrompt = optimization.optimizedPrompt();
             }
+            Map<String, Object> input = taskInput(context, task, toolPrompt);
+            sharedMemory.started(context.runId(), task.id(), task.kind().name(), attempt, input);
             events.publish(AgentEventType.TOOL_CALL, AgentEventStatus.RUNNING, "ToolRouter", Map.of("taskId", task.id(), "tool", task.kind().name(), "title", task.title(), "content", "tool call started", "attempt", attempt, "parallelGroup", task.parallelGroup(), "toolInput", toolPrompt));
-            completion.submit(callable(context, task, attempt, toolPrompt));
+            completion.submit(callable(context, task, attempt, toolPrompt, input));
             submitted++;
         }
         for (int index = 0; index < submitted; index++) {
@@ -113,33 +116,37 @@ public class ObservableDagTaskExecutor {
             TaskExecution execution = future.get();
             PlanTaskSpec task = execution.task();
             if (execution.result().success()) {
+                List<String> assetIds = publishImage(context, task, execution.result(), events);
                 Map<String, Object> result = Map.of("summary", execution.result().summary(), "provider", safe(execution.result().provider()), "imageUrl", safe(execution.result().imageUrl()));
                 transition(context, states, task, PlanTaskState.COMPLETE, execution.attempt(), result);
-                events.publish(AgentEventType.TOOL_RESULT, AgentEventStatus.COMPLETE, "ToolRouter", Map.of("taskId", task.id(), "tool", execution.result().tool().name(), "title", task.title(), "content", execution.result().summary(), "attempt", execution.attempt(), "parallelGroup", task.parallelGroup()));
-                publishImage(context, task, execution.result(), events);
+                sharedMemory.completed(context.runId(), task.id(), task.kind().name(), execution.attempt(), execution.input(), result, assetIds, execution.result().summary());
+                events.publish(AgentEventType.TOOL_RESULT, AgentEventStatus.COMPLETE, "ToolRouter", Map.of("taskId", task.id(), "tool", execution.result().tool().name(), "title", task.title(), "content", execution.result().summary(), "attempt", execution.attempt(), "parallelGroup", task.parallelGroup(), "assetIds", assetIds));
             } else if (execution.attempt() < task.maxAttempts()) {
                 transition(context, states, task, PlanTaskState.PENDING, execution.attempt(), Map.of("lastError", execution.result().summary()));
+                sharedMemory.failed(context.runId(), task.id(), task.kind().name(), execution.attempt(), execution.input(), execution.result().summary());
                 events.publish(AgentEventType.TASK, AgentEventStatus.QUEUED, "DagTaskExecutor", taskPayload(task, "retry", execution.result().summary(), execution.attempt()));
             } else {
                 transition(context, states, task, PlanTaskState.FAILED, execution.attempt(), Map.of("error", execution.result().summary()));
+                sharedMemory.failed(context.runId(), task.id(), task.kind().name(), execution.attempt(), execution.input(), execution.result().summary());
                 events.publish(AgentEventType.TOOL_RESULT, AgentEventStatus.FAILED, "ToolRouter", Map.of("taskId", task.id(), "tool", execution.result().tool().name(), "title", task.title(), "content", execution.result().summary(), "attempt", execution.attempt(), "parallelGroup", task.parallelGroup()));
             }
         }
     }
 
-    private Callable<TaskExecution> callable(ExecutionContext context, PlanTaskSpec task, int attempt, String prompt) {
+    private Callable<TaskExecution> callable(ExecutionContext context, PlanTaskSpec task, int attempt, String prompt, Map<String, Object> input) {
         return () -> {
             AgentToolType type = AgentToolType.valueOf(task.kind().name());
-            return new TaskExecution(task, attempt, toolClient.execute(type, prompt, context.request().getImageUrls(), context.request().getImageProvider(), context.ownerUserId()));
+            return new TaskExecution(task, attempt, input, toolClient.execute(type, prompt, context.request().getImageUrls(), context.request().getImageProvider(), context.ownerUserId()));
         };
     }
 
-    private void publishImage(ExecutionContext context, PlanTaskSpec task, AgentToolResult result, EventPublisher events) throws Exception {
-        if (result.imageUrl() == null || result.imageUrl().isBlank()) return;
+    private List<String> publishImage(ExecutionContext context, PlanTaskSpec task, AgentToolResult result, EventPublisher events) throws Exception {
+        if (result.imageUrl() == null || result.imageUrl().isBlank()) return List.of();
         String assetId = "asset-" + UUID.randomUUID();
         String title = task.title() + " output";
         assetStore.recordGeneratedForSession(context.sessionId(), context.runId(), assetId, title, result.imageUrl());
         events.publish(AgentEventType.IMAGE, AgentEventStatus.COMPLETE, "ImageToolchain", Map.of("assetId", assetId, "taskId", task.id(), "title", title, "imageUrl", result.imageUrl(), "content", result.summary(), "sourceTool", result.tool().name()));
+        return List.of(assetId);
     }
 
     private boolean requiresHumanGate(PlanTaskSpec task, PlanSolveExecutionStore.TaskSnapshot snapshot) {
@@ -157,30 +164,16 @@ public class ObservableDagTaskExecutor {
         return null;
     }
 
-    private boolean dependenciesComplete(PlanTaskSpec task, Map<String, PlanSolveExecutionStore.TaskSnapshot> states) {
-        return task.dependsOn().stream().allMatch(id -> states.get(id).state() == PlanTaskState.COMPLETE);
-    }
-
-    private boolean isTerminal(Map<String, PlanSolveExecutionStore.TaskSnapshot> states) {
-        return states.values().stream().allMatch(snapshot -> snapshot.state() == PlanTaskState.COMPLETE || snapshot.state() == PlanTaskState.FAILED || snapshot.state() == PlanTaskState.SKIPPED);
-    }
-
-    private void transition(ExecutionContext context, Map<String, PlanSolveExecutionStore.TaskSnapshot> states, PlanTaskSpec task, PlanTaskState state, int attempts, Map<String, Object> result) {
-        store.saveTask(context.runId(), task.id(), state, attempts, result);
-        states.put(task.id(), new PlanSolveExecutionStore.TaskSnapshot(state, attempts, result));
-    }
-
-    private Map<String, Object> taskPayload(PlanTaskSpec task, String state, String content, int attempt) {
-        return Map.of("taskId", task.id(), "title", task.title(), "content", content, "state", state, "attempt", attempt, "maxAttempts", task.maxAttempts(), "dependsOn", task.dependsOn(), "parallelGroup", task.parallelGroup(), "skipWhen", task.skipWhen());
-    }
-
+    private boolean dependenciesComplete(PlanTaskSpec task, Map<String, PlanSolveExecutionStore.TaskSnapshot> states) { return task.dependsOn().stream().allMatch(id -> states.get(id).state() == PlanTaskState.COMPLETE); }
+    private boolean isTerminal(Map<String, PlanSolveExecutionStore.TaskSnapshot> states) { return states.values().stream().allMatch(snapshot -> snapshot.state() == PlanTaskState.COMPLETE || snapshot.state() == PlanTaskState.FAILED || snapshot.state() == PlanTaskState.SKIPPED); }
+    private void transition(ExecutionContext context, Map<String, PlanSolveExecutionStore.TaskSnapshot> states, PlanTaskSpec task, PlanTaskState state, int attempts, Map<String, Object> result) { store.saveTask(context.runId(), task.id(), state, attempts, result); states.put(task.id(), new PlanSolveExecutionStore.TaskSnapshot(state, attempts, result)); }
+    private Map<String, Object> taskInput(ExecutionContext context, PlanTaskSpec task, String prompt) { return Map.of("prompt", prompt == null ? "" : prompt, "imageUrls", context.request().getImageUrls(), "imageProvider", safe(context.request().getImageProvider()), "parallelGroup", task.parallelGroup()); }
+    private Map<String, Object> taskPayload(PlanTaskSpec task, String state, String content, int attempt) { return Map.of("taskId", task.id(), "title", task.title(), "content", content, "state", state, "attempt", attempt, "maxAttempts", task.maxAttempts(), "dependsOn", task.dependsOn(), "parallelGroup", task.parallelGroup(), "skipWhen", task.skipWhen()); }
     private String safe(String value) { return value == null ? "" : value; }
 
-    @PreDestroy
-    void close() { workers.shutdown(); }
-
+    @PreDestroy void close() { workers.shutdown(); }
     public record ExecutionContext(String sessionId, String runId, String ownerUserId, com.jd.genie.model.agent.AgentRunRequest request, StructuredAgentPlan plan) { }
     public record ExecutionOutcome(boolean awaitingConfirmation, Map<String, PlanSolveExecutionStore.TaskSnapshot> states) { }
-    private record TaskExecution(PlanTaskSpec task, int attempt, AgentToolResult result) { }
+    private record TaskExecution(PlanTaskSpec task, int attempt, Map<String, Object> input, AgentToolResult result) { }
     @FunctionalInterface public interface EventPublisher { void publish(AgentEventType type, AgentEventStatus status, String agent, Map<String, Object> payload) throws Exception; }
 }

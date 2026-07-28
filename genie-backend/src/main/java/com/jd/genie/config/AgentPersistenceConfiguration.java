@@ -8,6 +8,7 @@ import com.jd.genie.persistence.agent.mapper.AgentPlanRevisionMapper;
 import com.jd.genie.persistence.agent.mapper.AgentPlanTaskStateMapper;
 import com.jd.genie.persistence.agent.mapper.AgentRunMapper;
 import com.jd.genie.persistence.agent.mapper.AgentSessionMapper;
+import com.jd.genie.persistence.agent.mapper.AgentSharedTaskMemoryMapper;
 import com.jd.genie.persistence.agent.mapper.AgentToolCallMapper;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
@@ -91,6 +92,7 @@ public class AgentPersistenceConfiguration {
         configuration.addMapper(AgentPlanRevisionMapper.class);
         configuration.addMapper(AgentPlanTaskStateMapper.class);
         configuration.addMapper(AgentPlanApprovalMapper.class);
+        configuration.addMapper(AgentSharedTaskMemoryMapper.class);
         factory.setConfiguration(configuration);
         return new AgentPersistenceMapperRegistry(new SqlSessionTemplate(factory.getObject()));
     }
@@ -139,6 +141,10 @@ public class AgentPersistenceConfiguration {
         return registry.mapper(AgentPlanApprovalMapper.class);
     }
 
+    @Bean
+    public AgentSharedTaskMemoryMapper agentSharedTaskMemoryMapper(AgentPersistenceMapperRegistry registry) {
+        return registry.mapper(AgentSharedTaskMemoryMapper.class);
+    }
     @Bean(name = "agentPersistenceTransactionManager")
     public PlatformTransactionManager agentPersistenceTransactionManager(
             @Qualifier("agentPersistenceDataSource") DataSource dataSource) {

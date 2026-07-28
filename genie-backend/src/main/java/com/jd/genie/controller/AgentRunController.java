@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.Map;
+
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/agent")
@@ -40,5 +42,11 @@ public class AgentRunController {
                                       @Valid @RequestBody PlanSolveApprovalRequest request,
                                       @RequestAttribute(AgentAuthenticationFilter.PRINCIPAL_ATTRIBUTE) AgentPrincipal principal) {
         return AgentRequestUserContext.runAs(principal, () -> dynamicPlanSolveAgentRunService.resolveApproval(sessionId, runId, approvalId, request.approved(), request.note()));
+    }
+
+    @PostMapping("/sessions/{sessionId}/runs/{runId}/cancel")
+    public Map<String, Boolean> cancelReActRun(@PathVariable String sessionId, @PathVariable String runId,
+                                                @RequestAttribute(AgentAuthenticationFilter.PRINCIPAL_ATTRIBUTE) AgentPrincipal principal) {
+        return AgentRequestUserContext.runAs(principal, () -> Map.of("cancelled", reActAgentRunService.cancel(runId, principal)));
     }
 }

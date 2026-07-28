@@ -293,7 +293,8 @@ export default function JendaAgentPage() {
 
   }, [assets]);
 
-  const consumeStream = async (response: Response) => {
+  const consumeStream = async (response: Response): Promise<Mode | undefined> => {
+    let handoffMode: Mode | undefined;
     if (!response.body) throw new Error(copy.error);
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
     while (true) {
@@ -306,12 +307,16 @@ export default function JendaAgentPage() {
         if (name !== "agent-event" || !payload) continue;
         const agentEvent = JSON.parse(payload) as AgentEvent;
         if (agentEvent.messageType === "heartbeat") continue;
-        if (agentEvent.messageType === "run_completed") { setRunning(false); continue; }
+        if (agentEvent.messageType === "run_completed") {
+          if (agentEvent.payload.handoffMode === "plan-solve") handoffMode = "plan-solve";
+          setRunning(false); continue;
+        }
         if (agentEvent.messageType === "error") { setRunning(false); setError(typeof agentEvent.payload.message === "string" ? agentEvent.payload.message : copy.error); continue; }
         setEvents((current) => [...current, agentEvent]);
       }
       if (done) break;
     }
+    return handoffMode;
   };
 
   const resolveConfirmation = async (event: AgentEvent, approved: boolean) => {
@@ -329,19 +334,29 @@ export default function JendaAgentPage() {
       setError(approvalError instanceof Error ? approvalError.message : copy.error);
     } finally { setRunning(false); }
   };
-  const run = async () => {
+  const run = async (forcedMode?: Mode, fromHandoff = false) => {
     const task = prompt.trim();
-    if (!task || !sessionId || running || uploading) return;
+    const runMode = forcedMode ?? mode;
+    if (!task || !sessionId || uploading || (running && !fromHandoff)) return;
     const imageUrls = assets.filter((asset) => asset.source === "reference" && selectedReferenceIds.includes(asset.assetId)).map((asset) => asset.imageUrl);
 
-    setRunning(true); setError(""); setEvents([]); setAssets((current) => current.filter((asset) => asset.source === "reference"));
+    setRunning(true); setError("");
+    if (!fromHandoff) {
+      setEvents([]);
+      setAssets((current) => current.filter((asset) => asset.source === "reference"));
+    }
     try {
       const response = await agentFetch(`${apiBaseUrl}/api/v1/agent/sessions/${encodeURIComponent(sessionId)}/runs`, {
         method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ prompt: task, mode, imageUrls: [...new Set(imageUrls)], preferredTools, imageProvider, promptOptimizationEnabled }),
+        body: JSON.stringify({ prompt: task, mode: runMode, imageUrls: [...new Set(imageUrls)], preferredTools, imageProvider, promptOptimizationEnabled }),
       });
       if (!response.ok) throw new Error(`${copy.error}: ${response.status}`);
-      await consumeStream(response); await loadWorkspace();
+      const handoff = await consumeStream(response);
+      await loadWorkspace();
+      if (handoff === "plan-solve" && runMode === "react") {
+        setMode("plan-solve");
+        await run("plan-solve", true);
+      }
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : copy.error);
     } finally { setRunning(false); }
