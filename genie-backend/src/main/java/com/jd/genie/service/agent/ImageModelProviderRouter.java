@@ -25,11 +25,36 @@ public class ImageModelProviderRouter {
     }
 
     public ImageModelResult generate(AgentToolGatewayRequest request) {
-        return select(request).generate(request);
+        return invoke(request, false);
     }
 
     public ImageModelResult edit(AgentToolGatewayRequest request) {
-        return select(request).edit(request);
+        return invoke(request, true);
+    }
+
+    /**
+     * Preserve an explicit provider choice for normal calls, but fail over to the configured
+     * default provider when the selected remote gateway has a transient transport failure.
+     */
+    private ImageModelResult invoke(AgentToolGatewayRequest request, boolean editing) {
+        ImageModelProvider primary = select(request);
+        try {
+            return editing ? primary.edit(request) : primary.generate(request);
+        } catch (RuntimeException primaryFailure) {
+            ImageModelProvider fallback = fallbackFor(request, primary);
+            if (fallback == null || !isRetryableGatewayFailure(primaryFailure)) {
+                throw primaryFailure;
+            }
+            try {
+                ImageModelResult recovered = editing ? fallback.edit(request) : fallback.generate(request);
+                return new ImageModelResult(recovered.imageUrl(),
+                        "Fallback from " + primary.id() + " after transient gateway failure; " + recovered.text(),
+                        recovered.provider(), recovered.archivedToCos());
+            } catch (RuntimeException fallbackFailure) {
+                primaryFailure.addSuppressed(fallbackFailure);
+                throw primaryFailure;
+            }
+        }
     }
 
     private ImageModelProvider select(AgentToolGatewayRequest request) {
@@ -50,6 +75,28 @@ public class ImageModelProviderRouter {
         return provider;
     }
 
+    private ImageModelProvider fallbackFor(AgentToolGatewayRequest request, ImageModelProvider primary) {
+        if (blank(request.model_provider())) {
+            return null;
+        }
+        String configured = properties.getDefaultProvider();
+        if (blank(configured)) {
+            return null;
+        }
+        ImageModelProvider fallback = providers.get(configured.trim().toLowerCase(Locale.ROOT));
+        return fallback == null || fallback.id().equalsIgnoreCase(primary.id()) ? null : fallback;
+    }
+
+    private boolean isRetryableGatewayFailure(RuntimeException error) {
+        String message = error.getMessage() == null ? "" : error.getMessage().toLowerCase(Locale.ROOT);
+        return message.contains("timeout")
+                || message.contains("handshake")
+                || message.contains("connection")
+                || message.contains("remote host")
+                || message.contains("ssl")
+                || message.contains("eof")
+                || message.matches(".*http 5\\d{2}.*");
+    }
     private boolean blank(String value) {
         return value == null || value.isBlank();
     }
