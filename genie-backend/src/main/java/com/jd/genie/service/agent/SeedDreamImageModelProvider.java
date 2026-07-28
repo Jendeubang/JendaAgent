@@ -48,13 +48,16 @@ public class SeedDreamImageModelProvider implements ImageModelProvider {
     }
 
     private ImageModelResult invoke(AgentToolGatewayRequest request, boolean editing) {
-        validateConfiguration();
+        String endpoint = setting(properties.getEndpoint(), "AGENT_GATEWAY_SEEDDREAM_ENDPOINT");
+        String model = setting(properties.getModel(), "AGENT_GATEWAY_SEEDDREAM_MODEL");
+        String apiKey = setting(properties.getApiKey(), "AGENT_GATEWAY_SEEDDREAM_API_KEY");
+        validateConfiguration(endpoint, model, apiKey);
         try {
             Request httpRequest = new Request.Builder()
-                    .url(properties.getEndpoint())
-                    .header("Authorization", "Bearer " + properties.getApiKey().trim())
+                    .url(endpoint)
+                    .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
-                    .post(RequestBody.create(objectMapper.writeValueAsString(payload(request)), JSON))
+                    .post(RequestBody.create(objectMapper.writeValueAsString(payload(request, model)), JSON))
                     .build();
             Duration timeout = safeTimeout(properties.getTimeout());
             OkHttpClient client = new OkHttpClient.Builder()
@@ -81,13 +84,13 @@ public class SeedDreamImageModelProvider implements ImageModelProvider {
         }
     }
 
-    private Map<String, Object> payload(AgentToolGatewayRequest request) {
+    private Map<String, Object> payload(AgentToolGatewayRequest request, String model) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("model", properties.getModel());
+        payload.put("model", model);
         payload.put("prompt", request.prompt());
-        payload.put("size", properties.getSize());
+        payload.put("size", setting(properties.getSize(), "AGENT_GATEWAY_SEEDDREAM_SIZE"));
         payload.put("response_format", "url");
-        payload.put("watermark", properties.isWatermark());
+        payload.put("watermark", booleanSetting(properties.isWatermark(), "AGENT_GATEWAY_SEEDDREAM_WATERMARK"));
         List<String> imageUrls = request.image_urls() == null ? List.of() : request.image_urls().stream()
                 .filter(url -> !blank(url))
                 .map(this::imageUrlForModel)
@@ -98,11 +101,11 @@ public class SeedDreamImageModelProvider implements ImageModelProvider {
         return payload;
     }
 
-    private void validateConfiguration() {
+    private void validateConfiguration(String endpoint, String model, String apiKey) {
         if (!enabled()) {
             throw new IllegalStateException("SeedDream gateway is disabled; set AGENT_GATEWAY_SEEDDREAM_ENABLED=true");
         }
-        if (blank(properties.getEndpoint()) || blank(properties.getModel()) || blank(properties.getApiKey())) {
+        if (blank(endpoint) || blank(model) || blank(apiKey)) {
             throw new IllegalStateException("SeedDream requires endpoint, model endpoint ID, and AGENT_GATEWAY_SEEDDREAM_API_KEY");
         }
     }
@@ -120,6 +123,15 @@ public class SeedDreamImageModelProvider implements ImageModelProvider {
         return timeout == null || timeout.isNegative() || timeout.isZero() ? Duration.ofSeconds(600) : timeout;
     }
 
+    private String setting(String configuredValue, String environmentName) {
+        String environmentValue = System.getenv(environmentName);
+        return blank(environmentValue) ? configuredValue : environmentValue.trim();
+    }
+
+    private boolean booleanSetting(boolean configuredValue, String environmentName) {
+        String environmentValue = System.getenv(environmentName);
+        return blank(environmentValue) ? configuredValue : Boolean.parseBoolean(environmentValue.trim());
+    }
     private boolean blank(String value) {
         return value == null || value.isBlank();
     }

@@ -23,6 +23,10 @@ Keep explicit browser model selection intact while allowing a configured default
 
 AGENT_GATEWAY_SEEDDREAM_ENABLED is also read directly from the container environment at runtime. This protects production deployments when configuration-property binding does not reflect the Compose environment value.
 
+## SeedDream Configuration Resolution
+
+SeedDreamImageModelProvider resolves AGENT_GATEWAY_SEEDDREAM_ENDPOINT, AGENT_GATEWAY_SEEDDREAM_MODEL, AGENT_GATEWAY_SEEDDREAM_API_KEY, AGENT_GATEWAY_SEEDDREAM_SIZE, and AGENT_GATEWAY_SEEDDREAM_WATERMARK directly from the Docker environment before falling back to Spring configuration properties.
+
 ## Validation
 
 ```powershell
