@@ -19,6 +19,10 @@ Keep explicit browser model selection intact while allowing a configured default
 - Configure the SeedDream endpoint, model, and API key in `deploy/.env`.
 - A request with an explicit provider still takes precedence. The browser can select `Auto` to use the backend default immediately.
 
+## Docker Flag Reliability
+
+AGENT_GATEWAY_SEEDDREAM_ENABLED is also read directly from the container environment at runtime. This protects production deployments when configuration-property binding does not reflect the Compose environment value.
+
 ## Validation
 
 ```powershell

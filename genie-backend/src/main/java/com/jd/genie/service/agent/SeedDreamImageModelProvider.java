@@ -99,7 +99,7 @@ public class SeedDreamImageModelProvider implements ImageModelProvider {
     }
 
     private void validateConfiguration() {
-        if (!properties.isEnabled()) {
+        if (!enabled()) {
             throw new IllegalStateException("SeedDream gateway is disabled; set AGENT_GATEWAY_SEEDDREAM_ENABLED=true");
         }
         if (blank(properties.getEndpoint()) || blank(properties.getModel()) || blank(properties.getApiKey())) {
@@ -122,6 +122,11 @@ public class SeedDreamImageModelProvider implements ImageModelProvider {
 
     private boolean blank(String value) {
         return value == null || value.isBlank();
+    }
+    /** Docker environment variables are authoritative for production feature flags. */
+    private boolean enabled() {
+        String environmentValue = System.getenv("AGENT_GATEWAY_SEEDDREAM_ENABLED");
+        return properties.isEnabled() || "true".equalsIgnoreCase(environmentValue == null ? "" : environmentValue.trim());
     }
 
     private String concise(String value) {
