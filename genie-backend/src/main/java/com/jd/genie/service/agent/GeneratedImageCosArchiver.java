@@ -1,5 +1,6 @@
 package com.jd.genie.service.agent;
 
+import com.jd.genie.config.SeedDreamImageGatewayProperties;
 import com.jd.genie.model.agent.StoredAgentImage;
 
 import lombok.RequiredArgsConstructor;
@@ -12,7 +13,11 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 /** Downloads a temporary Model Studio result and persists it in the configured COS bucket. */
@@ -22,6 +27,7 @@ public class GeneratedImageCosArchiver {
     private static final long MAX_IMAGE_BYTES = 10L * 1024 * 1024;
     private final ObjectProvider<CosAgentImageStorage> cosStorageProvider;
     private final ObjectProvider<CosSignedUrlService> signedUrlServiceProvider;
+    private final SeedDreamImageGatewayProperties seedDreamProperties;
     private final OkHttpClient client = new OkHttpClient.Builder()
             .callTimeout(Duration.ofSeconds(45))
             .followRedirects(false)
@@ -50,7 +56,7 @@ public class GeneratedImageCosArchiver {
                 }
                 String extension = extensionFor(contentType);
                 StoredAgentImage stored = cosStorage.store(new InMemoryAgentImageMultipartFile(
-                        "qwen-generated-" + UUID.randomUUID() + "." + extension,
+                        "generated-" + UUID.randomUUID() + "." + extension,
                         contentType,
                         content));
                 CosSignedUrlService signedUrlService = signedUrlServiceProvider.getIfAvailable();
@@ -67,11 +73,23 @@ public class GeneratedImageCosArchiver {
     private URI validateSource(String sourceUrl) {
         URI source = URI.create(sourceUrl);
         String host = source.getHost() == null ? "" : source.getHost().toLowerCase(Locale.ROOT);
-        if (!"https".equalsIgnoreCase(source.getScheme())
-                || !(host.endsWith(".aliyuncs.com") || host.endsWith(".aliyuncs.com.cn"))) {
-            throw new IllegalArgumentException("Only HTTPS Model Studio result URLs can be archived");
+        if (!"https".equalsIgnoreCase(source.getScheme()) || !allowedResultHosts().stream().anyMatch(host::endsWith)) {
+            throw new IllegalArgumentException("Provider result host is not on the configured COS archive allowlist");
         }
         return source;
+    }
+
+    private Set<String> allowedResultHosts() {
+        Set<String> hosts = new LinkedHashSet<>(Set.of(".aliyuncs.com", ".aliyuncs.com.cn"));
+        String configured = seedDreamProperties.getResultHostSuffixes();
+        if (configured != null) {
+            hosts.addAll(Arrays.stream(configured.split(","))
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .filter(value -> value.startsWith(".") && value.length() > 2)
+                    .collect(Collectors.toSet()));
+        }
+        return hosts;
     }
 
     private String normalizeImageContentType(String rawContentType) {

@@ -2,7 +2,6 @@ package com.jd.genie.service.agent;
 
 import com.jd.genie.model.agent.StoredAgentImage;
 import okhttp3.MediaType;
-import okhttp3.Dns;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
 import okhttp3.Request;
@@ -19,20 +18,15 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.net.URI;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * COS XML API adapter using the COS V5 signing scheme.
@@ -47,13 +41,11 @@ public class CosAgentImageStorage implements AgentImageStorage {
     private static final int MAX_UPLOAD_ATTEMPTS = 5;
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(Duration.ofSeconds(10))
-            .readTimeout(Duration.ofSeconds(20))
-            .writeTimeout(Duration.ofSeconds(30))
-            .callTimeout(Duration.ofSeconds(35))
+            .readTimeout(Duration.ofSeconds(60))
+            .writeTimeout(Duration.ofSeconds(60))
+            .callTimeout(Duration.ofSeconds(90))
             // COS intermittently closes TLS negotiation when HTTP/2 is attempted from Docker Desktop.
             .protocols(List.of(Protocol.HTTP_1_1))
-            // COS resolves to several edge IPs. Rotate them so a stalled edge cannot block every retry.
-            .dns(new RotatingDns())
             .retryOnConnectionFailure(true)
             .build();
     private final String bucket;
@@ -217,18 +209,6 @@ public class CosAgentImageStorage implements AgentImageStorage {
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("COS upload retry was interrupted", error);
-        }
-    }
-    private static final class RotatingDns implements Dns {
-        private final AtomicInteger nextOffset = new AtomicInteger();
-
-        @Override
-        public List<InetAddress> lookup(String hostname) throws UnknownHostException {
-            List<InetAddress> addresses = new ArrayList<>(List.of(InetAddress.getAllByName(hostname)));
-            if (addresses.size() > 1) {
-                Collections.rotate(addresses, -Math.floorMod(nextOffset.getAndIncrement(), addresses.size()));
-            }
-            return addresses;
         }
     }
 

@@ -18,5 +18,7 @@ public class SeedDreamImageGatewayProperties {
     private String model;
     private String size = "2K";
     private boolean watermark = true;
+    /** Temporary Ark result URLs are only downloaded from these explicit suffixes. */
+    private String resultHostSuffixes = ".volces.com,.volcengine.com,.byteimg.com";
     private Duration timeout = Duration.ofSeconds(600);
 }
