@@ -221,7 +221,7 @@ export default function JendaAgentPage() {
   const [error, setError] = useState("");
   const [reactTimelineOpen, setReactTimelineOpen] = useState(true);
   const [referenceOpen, setReferenceOpen] = useState(false);
-  const [deliveryOpen, setDeliveryOpen] = useState(true);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -290,7 +290,7 @@ export default function JendaAgentPage() {
   useEffect(() => {
     const referenceIds = new Set(assets.filter((asset) => asset.source === "reference").map((asset) => asset.assetId));
     setSelectedReferenceIds((current) => current.filter((assetId) => referenceIds.has(assetId)));
-    if (assets.some((asset) => asset.source === "generated")) setDeliveryOpen(true);
+
   }, [assets]);
 
   const consumeStream = async (response: Response) => {

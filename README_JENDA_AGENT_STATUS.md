@@ -117,3 +117,6 @@ The intended architecture README is `README_JENDA_AGENT.md`. A Windows sandbox i
 The toolbox now has tool-compatible model preferences. `image-upscale` and `seedvr2` route to `VolcengineSeedVr2ToolProvider`; `image-layered` routes to `SemanticLayerImageToolProvider`. Native providers receive COS-signed source URLs, run server-side, return normalized output, archive every layer to COS, and emit the same persisted SSE image events used by other workflows.
 
 Configuration and provider response requirements are documented in `README_JENDA_AGENT_STATUS_STEP73_NATIVE_TOOL_PROVIDERS.md`. Keep all credentials in `deploy/.env` only.
+## Agent Delivery Panel Default
+
+The /zh/agent delivery panel now defaults to collapsed, including immediately after generated assets arrive. Users expand it explicitly through its section toggle; generated and reference assets remain persisted and reusable.
